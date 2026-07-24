@@ -1,0 +1,260 @@
+/* Premium Checkout Redesign Styles - Delicate Luxury */
+
+:root {
+    --primary-yellow: #f6d814;
+    --dark-matte: #1a1a1a;
+    --light-bg: #ffffff;
+    --soft-gray: #f9f9f9;
+    --border-color: #e5e5e5;
+    --elegant-font: 'Outfit', sans-serif;
+    --artisanal-font: 'Oliveyar', sans-serif;
+}
+
+/* Base Styles */
+body.bg-white.grey_mob {
+    background-color: var(--light-bg) !important;
+}
+
+.breadCrumb_section.midPadding {
+    padding: 40px 0 20px;
+    background: transparent;
+}
+
+.breadcrumb-item a {
+    color: #999;
+    font-size: 13px;
+    text-decoration: none;
+    transition: color 0.3s;
+}
+
+.breadcrumb-item.active {
+    color: var(--dark-matte);
+    font-weight: 600;
+}
+
+/* Section Padding */
+.pickup_section.secPadding {
+    padding: 60px 0 100px;
+}
+
+/* Premium Containers */
+.mealCol_wrap,
+.ordGreen_cardN1,
+.DPick_formDIV {
+    background: var(--light-bg);
+    border: 1px solid var(--border-color);
+    padding: 40px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.02);
+    margin-bottom: 30px;
+    border-radius: 0;
+    /* Premium sharp edges */
+}
+
+/* Sidebar Titles */
+.asideSM_title {
+    font-family: var(--artisanal-font);
+    font-size: 28px;
+    color: var(--dark-matte);
+    margin-bottom: 30px;
+    font-weight: 500;
+    text-align: center;
+}
+
+/* Form Styles */
+.login_label,
+.DPick_label {
+    font-family: 'Cairo', sans-serif;
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 10px;
+    display: block;
+}
+
+.login_input,
+.datePick_input,
+.form-select {
+    width: 100%;
+    height: 55px;
+    border: 1px solid var(--border-color) !important;
+    background: var(--soft-gray);
+    padding: 0 20px;
+    font-size: 15px;
+    border-radius: 0 !important;
+    transition: all 0.3s;
+    outline: none;
+}
+
+.login_input:focus,
+.datePick_input:focus,
+.form-select:focus {
+    border-color: var(--dark-matte) !important;
+    background: #fff;
+}
+
+/* Checkbox/Radio Styling */
+.DPick_label {
+    display: flex;
+    align-items: center;
+    padding: 15px 20px;
+    border: 1px solid var(--border-color);
+    margin-bottom: 15px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.DPick_label:hover {
+    border-color: var(--primary-yellow);
+}
+
+.DPick_checkbox {
+    margin-inline-end: 15px;
+    accent-color: var(--primary-yellow);
+}
+
+/* Payment Method Cards */
+.paymentLG_flex {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 20px;
+}
+
+.visaOne_Crelative {
+    position: relative;
+    cursor: pointer;
+}
+
+.absRadio_check {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    cursor: pointer;
+    z-index: 2;
+}
+
+.visaOne_cardN {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 30px 20px;
+    border: 1px solid var(--border-color);
+    background: #fff;
+    transition: all 0.3s;
+    min-height: 140px;
+}
+
+.absRadio_check:checked+.visaOne_cardN {
+    border-color: var(--primary-yellow);
+    background: #fffcf0;
+    box-shadow: 0 5px 15px rgba(246, 216, 20, 0.1);
+}
+
+.visaOne_cIMG {
+    width: 50px;
+    margin-bottom: 15px;
+}
+
+.visaOne_name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--dark-matte);
+}
+
+/* Order Summary Refinement */
+.DPick_ftotal {
+    display: flex;
+    justify-content: space-between;
+    padding: 15px 0;
+    border-bottom: 1px solid #f5f5f5;
+    font-size: 15px;
+}
+
+.DPick_ftotal:last-child {
+    border-bottom: none;
+    font-size: 18px;
+    font-weight: 700;
+    margin-top: 10px;
+}
+
+/* Buttons */
+.main_bttn {
+    background-color: var(--dark-matte) !important;
+    color: #fff !important;
+    border: 1px solid var(--dark-matte) !important;
+    padding: 18px 30px;
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    border-radius: 0 !important;
+    transition: all 0.3s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.main_bttn:hover {
+    background-color: #fff !important;
+    color: var(--dark-matte) !important;
+}
+
+.main_bttn.white_bttn {
+    background-color: #fff !important;
+    color: var(--dark-matte) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+.main_bttn.white_bttn:hover {
+    border-color: var(--dark-matte) !important;
+}
+
+/* Success/Fail Specifics */
+.success-icon-wrapper,
+.failed-icon-wrapper {
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+/* Modal Styling */
+.modal-content {
+    border-radius: 0;
+    border: none;
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--border-color);
+    padding: 25px;
+}
+
+.modal-title {
+    font-family: var(--artisanal-font);
+    font-size: 24px;
+}
+
+.modal-body {
+    padding: 30px;
+}
+
+.modal-footer {
+    border-top: 1px solid var(--border-color);
+    padding: 20px 30px;
+}
+
+/* RTL Specific Adjustments */
+[dir="rtl"] .breadcrumb-item+.breadcrumb-item::before {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+}
+
+/* Mobile Responsive */
+@media (max-width: 991px) {
+
+    .mealCol_wrap,
+    .ordGreen_cardN1 {
+        padding: 25px;
+    }
+
+    .asideSM_title {
+        font-size: 24px;
+    }
+}

@@ -1,0 +1,30 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::table('product_prices', function (Blueprint $table) {
+            $table->decimal('discount_percentage', 5, 2)->nullable();
+            $table->boolean('has_discount')->default(false);
+            $table->enum('discount_type', ['percentage', 'fixed'])->nullable();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('product_prices', function (Blueprint $table) {
+            $table->dropColumn(['discount_percentage', 'has_discount', 'discount_type']);
+        });
+    }
+};

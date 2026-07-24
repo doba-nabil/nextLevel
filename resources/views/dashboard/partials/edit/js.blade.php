@@ -1,0 +1,13 @@
+<script src="{{ asset('dashboard') }}//assets/vendor/libs/select2/select2.js"></script>
+<script src="{{ asset('dashboard') }}//assets/vendor/libs/bootstrap-select/bootstrap-select.js"></script>
+<script src="{{asset('dashboard')}}/assets/js/forms-selects.js"></script>
+<script src="{{ asset('dashboard') }}//assets/vendor/libs/moment/moment.js"></script>
+<script src="{{ asset('dashboard') }}//assets/vendor/libs/flatpickr/flatpickr.js"></script>
+<script src="{{ asset('dashboard') }}//assets/vendor/libs/typeahead-js/typeahead.js"></script>
+<script src="{{ asset('dashboard') }}//assets/vendor/libs/tagify/tagify.js"></script>
+<script src="{{ asset('dashboard') }}//assets/vendor/libs/@form-validation/popular.js"></script>
+<script src="{{ asset('dashboard') }}//assets/vendor/libs/@form-validation/bootstrap5.js"></script>
+<script src="{{ asset('dashboard') }}//assets/vendor/libs/@form-validation/auto-focus.js"></script>
+<script src="{{ asset('dashboard') }}/assets/vendor/libs/sweetalert2/sweetalert2.js"></script>
+<script src="{{ asset('dashboard') }}/assets/vendor/libs/dropzone/dropzone.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>

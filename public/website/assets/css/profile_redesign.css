@@ -1,0 +1,208 @@
+/* Profile Page "Minimalist Luxury" Redesign */
+
+/* 1. Sidebar Separation & Styling */
+.asideProf_column {
+    background-color: #fff;
+    padding: 30px 20px;
+    border-radius: 0;
+    /* Sharp edges for luxury feel */
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
+    border: 1px solid #f5f5f5;
+    margin-bottom: 30px;
+}
+
+.asideProf_column .asideCat_list li {
+    margin-bottom: 5px;
+}
+
+.asideProf_column .asideCat_link {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 14px 20px;
+    border-radius: 4px;
+    transition: all 0.3s ease;
+    border: 1px solid transparent;
+    color: #444;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 500;
+    text-decoration: none;
+}
+
+.asideProf_column .asideCat_link:hover,
+.asideProf_column .asideCat_link.active_catlink {
+    background-color: #111;
+    /* Dark Active State */
+    color: #f6d814;
+    /* Gold Text */
+    border-color: #111;
+    transform: translateX(5px);
+}
+
+.asideProf_column .asideCat_link img.aslidCat_img {
+    filter: brightness(0) saturate(100%);
+    /* Make icon black */
+    transition: all 0.3s ease;
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+}
+
+.asideProf_column .asideCat_link:hover img.aslidCat_img,
+.asideProf_column .asideCat_link.active_catlink img.aslidCat_img {
+    filter: brightness(0) saturate(100%) invert(83%) sepia(26%) saturate(1048%) hue-rotate(359deg) brightness(101%) contrast(106%);
+    /* Gold Filter approx */
+}
+
+
+/* 2. Points Card Redesign (Black Theme) */
+.points_cardN {
+    background-color: #000;
+    padding: 35px;
+    border-radius: 12px;
+    color: #fff;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 50px;
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+}
+
+/* Background Texture/Effect (Optional Luxury Touch) */
+.points_cardN::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 200px;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05));
+    pointer-events: none;
+}
+
+.topflex_wrap {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.points_title {
+    font-family: 'Playfair Display', serif;
+    font-size: 48px;
+    color: #f6d814;
+    /* Gold Points */
+    line-height: 1;
+}
+
+.points_title small {
+    font-family: 'Outfit', sans-serif;
+    font-size: 16px;
+    color: #fff;
+    opacity: 0.7;
+    margin-left: 5px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.target_flex {
+    text-align: right;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.target_flex span {
+    font-size: 14px;
+    color: #ccc;
+    margin-bottom: 8px;
+    max-width: 200px;
+}
+
+.target_icon {
+    width: 24px;
+    filter: brightness(0) invert(1);
+    /* White icon */
+}
+
+/* Progress Bar */
+.progress {
+    height: 8px;
+    background-color: rgba(255, 255, 255, 0.15) !important;
+    border-radius: 10px;
+    overflow: visible;
+    /* Allow arrow to stick out */
+    margin: 30px 0 15px;
+}
+
+.progress-bar {
+    background-color: #f6d814 !important;
+    /* Gold Progress */
+    border-radius: 10px;
+    position: relative;
+    overflow: visible;
+}
+
+/* 3. Yellow Arrow (Replacing Runner) */
+.progress-bar::before {
+    content: '\f107';
+    /* FontAwesome Angle Down - acting as pointer */
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    position: absolute;
+    top: -28px;
+    /* Adjusted position */
+    right: -7px;
+    color: #f6d814;
+    font-size: 24px;
+    background: none;
+    width: auto;
+    height: auto;
+    text-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+    animation: bounce 2s infinite;
+}
+
+/* Note: Original code used right: -20px. Adjust as needed. */
+
+@keyframes bounce {
+
+    0%,
+    20%,
+    50%,
+    80%,
+    100% {
+        transform: translateY(0);
+    }
+
+    40% {
+        transform: translateY(-5px);
+    }
+
+    60% {
+        transform: translateY(-3px);
+    }
+}
+
+/* Ruler Section */
+.rule_flex {
+    position: relative;
+    margin-top: 15px;
+    padding-top: 10px;
+}
+
+.rule_thumb {
+    width: 100%;
+    opacity: 0.2;
+    /* Subtle ruler */
+    filter: invert(1);
+    /* White ruler lines */
+}
+
+.ruleNum_flex {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 10px;
+    font-size: 12px;
+    color: #888;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 500;
+}

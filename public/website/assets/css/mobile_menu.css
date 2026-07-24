@@ -1,0 +1,250 @@
+/* Mobile Sidebar "Minimalist Luxury" Redesign - SCOPED */
+
+/* Sidebar Container */
+.absMenu_inner {
+    background-color: #ffffff;
+    /* Clean White Background */
+    padding: 30px 20px;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.05);
+    /* Soft shadow for depth */
+    height: 100vh;
+    overflow-y: auto;
+    font-family: 'Outfit', sans-serif;
+}
+
+/* Rows Spacing - Scoped to sidebar */
+.absMenu_inner .contctop_row {
+    border-bottom: 1px solid #f0f0f0;
+    padding-bottom: 20px;
+    margin-bottom: 20px !important;
+    /* Force override */
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+/* Make align-items-end row horizontal (50/50) */
+.absMenu_inner .contctop_row.align-items-end {
+    flex-direction: row !important;
+    align-items: stretch;
+    gap: 10px;
+}
+
+.absMenu_inner .contctop_row.border-0 {
+    border-bottom: none;
+}
+
+/* Login Section - Scoped */
+.absMenu_inner .logFlex_wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+    color: #1a1a1a;
+    font-weight: 500;
+}
+
+.absMenu_inner .logSM_imG {
+    width: 24px;
+    height: 24px;
+    opacity: 0.8;
+}
+
+.absMenu_inner .login_SMbttn {
+    background-color: #1a1a1a;
+    color: #fff !important;
+    text-align: center;
+    padding: 12px;
+    border-radius: 6px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.absMenu_inner .login_SMbttn:hover {
+    background-color: #f6d814;
+    /* Gold Accent */
+    color: #1a1a1a !important;
+}
+
+/* Location & Language - Scoped */
+.absMenu_inner .langMD_bttn {
+    background: #f9f9f9;
+    border: 1px solid #eee;
+    padding: 10px 15px;
+    border-radius: 8px;
+    width: 100%;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.absMenu_inner .langMD_bttn svg {
+    color: #f6d814;
+    /* Icon Gold */
+    width: 16px;
+}
+
+.absMenu_inner .delivery-time-display {
+    background: #fff;
+    border: 1px dashed #ddd;
+    /* Subtle border */
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px !important;
+    color: #555 !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Navigation Links - Scoped */
+.absMenu_inner .asideNav_links {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.absMenu_inner .asideNav_links li {
+    margin-bottom: 12px;
+}
+
+.absMenu_inner .asideNav_links li a {
+    display: block;
+    font-size: 16px;
+    color: #333;
+    font-weight: 500;
+    padding: 8px 0;
+    text-decoration: none;
+    transition: color 0.3s ease, padding-left 0.3s ease;
+    border-bottom: 1px solid transparent;
+}
+
+.absMenu_inner .asideNav_links li a:hover {
+    color: #f6d814;
+    padding-left: 5px;
+    /* Subtle movement */
+}
+
+/* Call Support Special Styling - Scoped */
+.absMenu_inner .asideNav_links li a[href^="tel"] {
+    color: #1a1a1a;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+}
+
+.absMenu_inner .asideNav_links li a[href^="tel"]::before {
+    content: '\f2a0';
+    /* Line Awesome Phone Icon */
+    font-family: "Line Awesome Free";
+    font-weight: 900;
+    margin-inline-end: 10px;
+    color: #f6d814;
+    display: inline-block;
+}
+
+/* Social Media Footer - Scoped */
+.absMenu_inner .footer_Column {
+    margin-top: auto;
+    /* Push to bottom if container full height */
+    text-align: center;
+    padding-top: 20px;
+    border-top: 1px solid #f0f0f0;
+}
+
+.absMenu_inner .social_flex {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+}
+
+.absMenu_inner .social_link {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #f9f9f9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #1a1a1a;
+    font-size: 18px;
+    transition: all 0.3s ease;
+    border: 1px solid #eee;
+}
+
+.absMenu_inner .social_link:hover {
+    background-color: #f6d814;
+    color: #fff;
+    transform: translateY(-3px);
+    border-color: #f6d814;
+}
+
+/* Wallet Section in Sidebar - Scoped */
+.absMenu_inner .sidebar-wallet-section {
+    background: #f9f9f9;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    padding: 12px;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.absMenu_inner .sidebar-wallet-section .wallet-item,
+.absMenu_inner .sidebar-wallet-section .points-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 8px;
+    background: #fff;
+    border-radius: 6px;
+    border: 1px solid #f0f0f0;
+    justify-content: flex-start;
+}
+
+.absMenu_inner .sidebar-wallet-section .wallet-icon,
+.absMenu_inner .sidebar-wallet-section .points-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    /*background: rgba(246, 216, 20, 0.1);*/
+    border-radius: 50%;
+    margin-bottom: 6px;
+}
+
+.absMenu_inner .sidebar-wallet-section .mob_title {
+    font-size: 10px;
+    color: #666;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 500;
+}
+
+.absMenu_inner .sidebar-wallet-section .wallet-value,
+.absMenu_inner .sidebar-wallet-section .points-value {
+    font-size: 13px;
+    font-weight: 600;
+    color: #000;
+    display: block;
+    line-height: 1.2;
+    word-break: break-word;
+}
+
+/* Make contctop_row flex for 50/50 layout */
+.absMenu_inner .contctop_row.align-items-end {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 10px;
+}
