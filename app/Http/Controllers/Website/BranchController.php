@@ -35,7 +35,8 @@ class BranchController extends Controller
 
         $allBranches = $branchesQuery->orderBy('id','desc')->get();
         if ($slug) {
-            $activeBranch = $allBranches->where('slug', $slug)->firstOrFail();
+            $activeBranch = $allBranches->where('slug', $slug)->first();
+            abort_if(!$activeBranch, 404);
         } else {
             $activeBranch = $allBranches->first();
         }
@@ -117,6 +118,44 @@ class BranchController extends Controller
                 'address' => $branch->address,
             ]
         ]);
+    }
+
+    /**
+     * Handle QR code scan to select branch and set order type to pickup
+     */
+    public function scanQr($identifier)
+    {
+        $branch = Branch::where('active', 1)->where(function($query) use ($identifier) {
+            $query->where('slug', $identifier)->orWhere('id', $identifier);
+        })->firstOrFail();
+        $city = Location::where('id', $branch->location_id)->where('type', 'city')->first();
+        if (!$city) {
+            $city = $branch->cities()->first();
+        }
+
+        $state = $city ? $city->parent : null;
+        $country = $state ? $state->parent : null;
+
+        session([
+            'pickup_branch_id' => $branch->id,
+            'menu_type' => 'pickup',
+            'order_type' => 'pickup',
+            
+            'user_location' => [
+                'country' => $country ? $country->id : null,
+                'country_name' => $country ? $country->getTranslation('name', app()->getLocale()) : null,
+                'state_id' => $state ? $state->id : null,
+                'state' => $state ? $state->getTranslation('name', app()->getLocale()) : null,
+                'city_id' => $city ? $city->id : null,
+                'city' => $city ? $city->getTranslation('name', app()->getLocale()) : null,
+                'delivery_time' => $city ? $city->delivery_time : null,
+            ],
+            
+            'pickup_governorate_id' => $state ? $state->id : null,
+            'pickup_city_id' => $city ? $city->id : null,
+        ]);
+
+        return redirect()->route('website.home')->with('success', __('website.branch_selected_successfully') ?? 'تم اختيار الفرع بنجاح');
     }
 
 }

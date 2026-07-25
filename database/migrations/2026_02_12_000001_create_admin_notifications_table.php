@@ -11,21 +11,23 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('admin_notifications', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('admin_id')->nullable();
-            $table->unsignedBigInteger('order_id')->nullable();
-            $table->string('type')->default('order'); // order, system, etc.
-            $table->string('title');
-            $table->text('message');
-            $table->boolean('is_read')->default(false);
-            $table->timestamp('read_at')->nullable();
-            $table->timestamps();
+        if (!Schema::hasTable('admin_notifications')) {
+            Schema::create('admin_notifications', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('admin_id')->nullable();
+                $table->unsignedBigInteger('order_id')->nullable();
+                $table->string('type')->default('order'); // order, system, etc.
+                $table->string('title');
+                $table->text('message');
+                $table->boolean('is_read')->default(false);
+                $table->timestamp('read_at')->nullable();
+                $table->timestamps();
 
-            $table->foreign('admin_id')->references('id')->on('users')->onDelete('cascade');
-            $table->foreign('order_id')->references('id')->on('orders')->onDelete('cascade');
-            $table->index(['admin_id', 'is_read']);
-        });
+                $table->foreign('admin_id')->references('id')->on('users')->onDelete('cascade');
+                $table->foreign('order_id')->references('id')->on('orders')->onDelete('cascade');
+                $table->index(['admin_id', 'is_read']);
+            });
+        }
     }
 
     /**

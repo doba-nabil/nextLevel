@@ -27,6 +27,11 @@ class CheckoutController extends Controller
             return redirect()->route('cart.index')->with('error', __('website.cart_empty'));
         }
 
+        $cartStockError = app(\App\Services\BranchStockService::class)->validateSessionCart();
+        if ($cartStockError) {
+            return redirect()->route('cart.index')->with('error', $cartStockError);
+        }
+
         // Get order type from session (normalize to 'pick_up' or 'delivery')
         $menuType = session('menu_type', 'delivery');
         $orderType = ($menuType === 'pickup') ? 'pick_up' : $menuType;
@@ -86,6 +91,22 @@ class CheckoutController extends Controller
         $deliveryCost = $orderType === 'delivery' ? $this->calculateDeliveryCost() : 0;
 
         $total = (float) max(0, $subtotal - $voucherDiscount + $deliveryCost);
+
+        // Minimum Order Validation for Delivery
+        if ($orderType === 'delivery') {
+            $userLocation = session('user_location');
+            if ($userLocation && isset($userLocation['city_id']) && $userLocation['city_id']) {
+                $cityId = (int) $userLocation['city_id'];
+                $city = Location::where('active', true)->find($cityId);
+                
+                if ($city && $city->min_order_near > 0) {
+                    if ($subtotal < $city->min_order_near) {
+                        return redirect()->route('cart.index')
+                            ->with('error', __('website.min_order_error', ['amount' => number_format($city->min_order_near, 3)]));
+                    }
+                }
+            }
+        }
 
         // Get user addresses if authenticated (only for delivery)
         $addresses = collect([]);
@@ -274,35 +295,6 @@ class CheckoutController extends Controller
             }
         }
 
-        // Check if restaurant is closed based on working hours
-        $restaurantIsClosed = false;
-        if ($orderType === 'pick_up' && $selectedBranch) {
-            $selectedBranch->load('workingHours');
-            $restaurantIsClosed = !$selectedBranch->isCurrentlyOpen();
-        } elseif ($orderType === 'delivery') {
-            $userLocation = session('user_location');
-            $cityId = $userLocation['city_id'] ?? null;
-            
-            if ($cityId) {
-                $branches = \App\Models\Branch::where('active', 1)
-                    ->whereHas('cities', function($q) use ($cityId) {
-                        $q->where('locations.id', $cityId);
-                    })
-                    ->with('workingHours')
-                    ->get();
-                
-                $hasOpenBranch = false;
-                foreach ($branches as $branch) {
-                    if ($branch->isCurrentlyOpen()) {
-                        $hasOpenBranch = true;
-                        break;
-                    }
-                }
-                
-                $restaurantIsClosed = !$hasOpenBranch && $branches->isNotEmpty();
-            }
-        }
-
         return view('website.checkout.index', compact(
             'orderType',
             'branches',
@@ -316,16 +308,16 @@ class CheckoutController extends Controller
             'selectedBranchForDelivery',
             'hasAvailableAddress',
             'selectedStateId',
-            'selectedCityId',
-            'restaurantIsClosed'
+            'selectedCityId'
         ));
     }
 
     private function getCartProducts($cart)
     {
         return collect($cart)->map(function ($item) {
-            $product = Product::where('active', true)
-                ->find($item['product_id']);
+            $product = Product::withoutGlobalScope('city_availability')
+            ->where('active', true)
+            ->find($item['product_id']);
 
             if (!$product) return null;
 
@@ -337,7 +329,8 @@ class CheckoutController extends Controller
                 'price' => (float) $item['price'],
                 'addons' => $this->getAddonsData($item['addons'] ?? []),
                 'is_box' => (bool) ($item['is_box'] ?? false),
-                'box_addons' => $this->getBoxAddonsData($item['box_addons'] ?? []),
+                'subproducts' => $item['subproducts'] ?? [],
+                'box_addons' => $this->getSubproductsData($item['subproducts'] ?? [], $item['box_addons'] ?? []),
             ];
         })->filter();
     }
@@ -351,26 +344,42 @@ class CheckoutController extends Controller
             ->toArray();
     }
 
-    private function getBoxAddonsData($boxAddons)
+    private function getSubproductsData($subproducts, $boxAddonsFallback)
     {
-        if (empty($boxAddons) || !is_array($boxAddons)) return [];
-        $subProductIds = array_keys($boxAddons);
-        $subProducts = Product::whereIn('id', $subProductIds)->get(['id','name']);
-        $subIdToName = $subProducts->pluck('name','id');
-        $result = [];
-        foreach ($boxAddons as $subProductId => $addonIds) {
-            if (!is_array($addonIds) || empty($addonIds)) continue;
-            $addons = \App\Models\Addon::where('active', 1)
-                ->whereIn('id', $addonIds)
-                ->get(['id','name'])
-                ->toArray();
-            $result[] = [
-                'sub_product_id' => (int) $subProductId,
-                'sub_product_name' => (string) ($subIdToName[$subProductId] ?? ''),
-                'addons' => $addons,
-            ];
+        $items = [];
+        if (!empty($subproducts) && is_array($subproducts)) {
+            $subProductIds = array_values(array_unique(array_map(fn($sp)=> (int)($sp['product_id'] ?? 0), $subproducts)));
+            $subProducts = Product::withoutGlobalScope('city_availability')->whereIn('id', $subProductIds)->get(['id','name']);
+            $subIdToName = $subProducts->pluck('name','id');
+            foreach ($subproducts as $sp) {
+                $pid = (int) ($sp['product_id'] ?? 0);
+                if ($pid <= 0) continue;
+                $addonIds = array_map('intval', (array) ($sp['addons'] ?? []));
+                $addons = empty($addonIds) ? collect() : \App\Models\Addon::where('active', 1)->whereIn('id', $addonIds)->get(['id','name']);
+                $items[] = [
+                    'sub_product_id' => $pid,
+                    'sub_product_name' => (string) ($subIdToName[$pid] ?? ''),
+                    'addons' => $addons->toArray(),
+                ];
+            }
+            return $items;
         }
-        return $result;
+        
+        if (!empty($boxAddonsFallback) && is_array($boxAddonsFallback)) {
+            $subProductIds = array_keys($boxAddonsFallback);
+            $subProducts = Product::withoutGlobalScope('city_availability')->whereIn('id', $subProductIds)->get(['id','name']);
+            $subIdToName = $subProducts->pluck('name', 'id');
+            foreach ($boxAddonsFallback as $subProductId => $addonIds) {
+                if (!is_array($addonIds)) $addonIds = [];
+                $addons = empty($addonIds) ? collect() : \App\Models\Addon::where('active', 1)->whereIn('id', $addonIds)->get(['id','name']);
+                $items[] = [
+                    'sub_product_id' => (int) $subProductId,
+                    'sub_product_name' => (string) ($subIdToName[$subProductId] ?? ''),
+                    'addons' => $addons->toArray(),
+                ];
+            }
+        }
+        return $items;
     }
 
     private function calculateVoucherDiscount($appliedVoucher, $subtotal)
@@ -403,7 +412,7 @@ class CheckoutController extends Controller
         $request->validate([
             'phone' => 'required|string|max:8|min:8',
             'guest_country_id' => 'required|exists:locations,id',
-            'email' => 'required|email|max:255',
+            'email' => 'nullable|email|max:255',
         ]);
 
         $phone = preg_replace('/[^0-9]/', '', $request->input('phone'));
@@ -431,7 +440,7 @@ class CheckoutController extends Controller
         $phoneExists = User::where('phone', $phone)
             ->where('country_id', $countryId)
             ->exists();
-        $emailExists = User::where('email', $email)->exists();
+        $emailExists = $email ? User::where('email', $email)->exists() : false;
 
         if ($phoneExists || $emailExists) {
             return response()->json([
@@ -657,7 +666,7 @@ class CheckoutController extends Controller
             'name' => 'required|string|max:255',
             'phone' => 'required|string|max:8|min:8',
             'guest_country_id' => 'required|exists:locations,id',
-            'email' => 'required|email|max:255|unique:users,email',
+            'email' => 'nullable|email|max:255|unique:users,email',
             'password' => 'required|string|min:6|confirmed',
         ]);
 
@@ -695,7 +704,8 @@ class CheckoutController extends Controller
         $phoneExists = User::where('phone', $phone)
             ->where('country_id', $countryId)
             ->exists();
-        $emailExists = User::where('email', $request->input('email'))->exists();
+        $email = $request->input('email');
+        $emailExists = $email ? User::where('email', $email)->exists() : false;
 
         if ($phoneExists || $emailExists) {
             return response()->json([

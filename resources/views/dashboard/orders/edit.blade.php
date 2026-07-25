@@ -91,9 +91,32 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach($order->items as $item)
+                                        @foreach($order->items->whereNull('parent_item_id') as $item)
                                             <tr>
-                                                <td>{{ $item->product->name ?? 'N/A' }}</td>
+                                                <td>
+                                                    {{ $item->product->name ?? 'N/A' }}
+                                                    @if($item->addons && $item->addons->count() > 0)
+                                                        <br><small class="text-muted">+ {{ $item->addons->pluck('addon.name')->implode(', ') }}</small>
+                                                    @endif
+                                                    @if($item->children && $item->children->count() > 0)
+                                                        <br><small class="text-muted">→ {{ $item->children->pluck('product.name')->implode(', ') }}</small>
+                                                    @elseif($item->meta && isset($item->meta['is_box']) && $item->meta['is_box'] && isset($item->meta['subproducts']))
+                                                        @php
+                                                            $spNames = [];
+                                                            foreach($item->meta['subproducts'] as $sp) {
+                                                                if(isset($sp['product_id']) && isset($subProducts[$sp['product_id']])) {
+                                                                    $spName = is_array($subProducts[$sp['product_id']]) 
+                                                                        ? ($subProducts[$sp['product_id']][app()->getLocale()] ?? $subProducts[$sp['product_id']]['en'] ?? 'Name')
+                                                                        : $subProducts[$sp['product_id']];
+                                                                    $spNames[] = $spName;
+                                                                }
+                                                            }
+                                                        @endphp
+                                                        @if(count($spNames) > 0)
+                                                            <br><small class="text-muted">→ {{ implode(', ', $spNames) }}</small>
+                                                        @endif
+                                                    @endif
+                                                </td>
                                                 <td>{{ $item->quantity }}</td>
                                                 <td>{{ number_format($item->price, 3) }} {{ \App\Models\Currency::getCurrentCurrencySign() }}</td>
                                                 <td>{{ number_format($item->total, 3) }} {{ \App\Models\Currency::getCurrentCurrencySign() }}</td>

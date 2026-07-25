@@ -27,7 +27,7 @@ class CartController extends Controller
             }
             
             // Verify branch is active
-            $branch = \App\Models\Branch::where('active', 1)->with('workingHours')->find($pickupBranchId);
+            $branch = \App\Models\Branch::where('active', 1)->find($pickupBranchId);
             if (!$branch) {
                 session()->forget('pickup_branch_id');
                 return response()->json([
@@ -35,43 +35,13 @@ class CartController extends Controller
                     'message' => __('website.please_select_branch_first') ?? 'من فضلك اختر الفرع أولًا'
                 ], 422);
             }
-            
-            // Check if branch is currently open based on working hours
-            if (!$branch->isCurrentlyOpen()) {
+
+            // Check if branch is open
+            if (!$branch->isOpen()) {
                 return response()->json([
                     'status' => false,
-                    'message' => __('website.restaurant_is_closed') ?? 'المطعم مغلق حالياً ولا يمكن إضافة منتجات للكارت'
+                    'message' => __('website.branch_closed') ?? 'الفرع مغلق حالياً'
                 ], 422);
-            }
-        } else {
-            // For delivery orders, check if any branch in the city is open
-            $userLocation = session('user_location');
-            $cityId = $userLocation['city_id'] ?? null;
-            
-            if ($cityId) {
-                // Get all active branches in the city
-                $branches = \App\Models\Branch::where('active', 1)
-                    ->whereHas('cities', function($q) use ($cityId) {
-                        $q->where('locations.id', $cityId);
-                    })
-                    ->with('workingHours')
-                    ->get();
-                
-                // Check if at least one branch is open
-                $hasOpenBranch = false;
-                foreach ($branches as $branch) {
-                    if ($branch->isCurrentlyOpen()) {
-                        $hasOpenBranch = true;
-                        break;
-                    }
-                }
-                
-                if (!$hasOpenBranch && $branches->isNotEmpty()) {
-                    return response()->json([
-                        'status' => false,
-                        'message' => __('website.restaurant_is_closed') ?? 'المطعم مغلق حالياً ولا يمكن إضافة منتجات للكارت'
-                    ], 422);
-                }
             }
         }
         
@@ -86,6 +56,15 @@ class CartController extends Controller
         
         $product = Product::where('active', true)
             ->findOrFail($request->product_id);
+
+        $stockError = app(\App\Services\BranchStockService::class)
+            ->validateCartQuantity($product, (int) $request->quantity);
+        if ($stockError) {
+            return response()->json([
+                'status' => false,
+                'message' => $stockError,
+            ], 422);
+        }
         
         // Check if product is available in selected city
         $cityId = $userLocation['city_id'];
@@ -108,6 +87,20 @@ class CartController extends Controller
                 }
             }
         } else {
+            // For delivery orders, check if branch serving this city is open
+            $branch = \App\Models\Branch::where('active', 1)
+                ->whereHas('cities', function($q) use ($cityId) {
+                    $q->where('locations.id', $cityId);
+                })
+                ->first();
+
+            if ($branch && !$branch->isOpen()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => __('website.branch_closed') ?? 'الفرع مغلق حالياً'
+                ], 422);
+            }
+
             // For delivery orders, check if product is available in any branch in the city
             $isAvailableInCity = $product->branches()
                 ->whereHas('cities', function($q) use ($cityId) {
@@ -151,11 +144,50 @@ class CartController extends Controller
         }
         
         // Validate box products if it's a box
-        if ($isBox && empty($subproducts)) {
-            return response()->json([
-                'status' => false,
-                'message' => __('website.please_select_at_least_one_product')
-            ]);
+        if ($isBox) {
+            if (empty($subproducts)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => __('website.please_select_at_least_one_product')
+                ]);
+            }
+
+            $requestedProductIds = array_map(function ($sp) { return (int) ($sp['product_id'] ?? 0); }, $subproducts);
+
+            $boxProductsConstraints = $product->products()->withoutGlobalScope('city_availability')->get()->groupBy(function($item) {
+                return is_array($item->pivot->title) ? json_encode($item->pivot->title) : $item->pivot->title;
+            });
+
+            foreach ($boxProductsConstraints as $titleGroup => $groupProducts) {
+                $firstProduct = $groupProducts->first();
+                $minCount = (int) ($firstProduct->pivot->min_count ?? 0);
+                $maxCount = (int) ($firstProduct->pivot->max_count ?? 1);
+                $isRequired = (bool) ($firstProduct->pivot->is_required ?? false);
+
+                $groupProductIds = $groupProducts->pluck('id')->toArray();
+                $selectedCount = count(array_intersect($requestedProductIds, $groupProductIds));
+
+                if ($isRequired && $selectedCount === 0) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => __('website.please_select_required_products')
+                    ], 422);
+                }
+
+                if ($minCount > 0 && $selectedCount < $minCount) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => __('website.please_select_minimum_products', ['min' => $minCount])
+                    ], 422);
+                }
+
+                if ($selectedCount > $maxCount) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => __('website.please_select_maximum_products', ['max' => $maxCount])
+                    ], 422);
+                }
+            }
         }
         
         // Flat list of subproduct ids for quick reference if needed
@@ -334,20 +366,14 @@ class CartController extends Controller
             $subproductsData = $this->getSubproductsData($item['subproducts'] ?? [], $item['box_addons'] ?? []);
             $boxProductsList = $this->getBoxProductsList($item['box_products'] ?? []);
 
-            // Get product image with fallback
-            $productImage = $product->getFirstMediaUrl('products', 'thumb');
-            if (empty($productImage)) {
-                $settingModel = \App\Models\Setting::getSettingModel();
-                $productImage = $settingModel && $settingModel->getFirstMediaUrl('logo') 
-                    ? $settingModel->getFirstMediaUrl('logo') 
-                    : asset('website/assets/img/logo.png');
-            }
+            $stockDetails = app(\App\Services\BranchStockService::class)->getDetails($product);
+            $isOutOfStock = $stockDetails['is_out_of_stock'] || !$stockDetails['is_available_in_branch'];
 
             return [
                 'id' => $item['product_id'],
                 'slug' => $product->slug,
                 'name' => $product->name,
-                'image' => $productImage,
+                'image' => $product->getFirstMediaUrl('products', 'thumb') ?? asset('website/assets/img/no-image.png'),
                 'quantity' => $quantity,
                 'unit_price' => $unitPrice,
                 'price' => $price,
@@ -357,7 +383,9 @@ class CartController extends Controller
                 'box_addons' => $subproductsData, // For backward compatibility with view
                 'box_products' => $boxProductsList,
                 'notes' => $item['notes'] ?? '',
-                'product' => $product
+                'product' => $product,
+                'is_out_of_stock' => $isOutOfStock,
+                'max_allowed_quantity' => $stockDetails['max_allowed_quantity'],
             ];
         })->filter();
 
@@ -543,6 +571,15 @@ class CartController extends Controller
                 $product = Product::where('active', true)->find($productId);
                 if (!$product) {
                     continue;
+                }
+
+                $stockError = app(\App\Services\BranchStockService::class)
+                    ->validateCartQuantity($product, $quantity);
+                if ($stockError) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => $stockError,
+                    ], 422);
                 }
 
                 $unitPrice = (float) $product->getCurrentPrice(session('currency'));
@@ -855,4 +892,5 @@ class CartController extends Controller
         
         return $deliveryCost;
     }
+
 }

@@ -10,7 +10,7 @@ use App\Models\OrderItemAddon;
 use App\Models\Product;
 use App\Models\Addon;
 use App\Models\Coupon;
-use App\Services\BookeeyService;
+use App\Services\MyFatoorahService;
 use App\Services\FirebaseNotificationService;
 use App\Services\WhatsAppService;
 use Illuminate\Http\Request;
@@ -49,7 +49,7 @@ class OrderController extends Controller
                 $request->validate([
                     'guest_name' => 'required|string|max:255',
                     'guest_phone' => 'required|string|max:20',
-                    'guest_email' => 'required|email|max:255',
+                    'guest_email' => 'nullable|email|max:255',
                     'address' => 'required|string',
                 ]);
 
@@ -64,7 +64,7 @@ class OrderController extends Controller
                 }
 
                 $phoneExists = \App\Models\User::where('phone', $phone)->exists();
-                $emailExists = \App\Models\User::where('email', $email)->exists();
+                $emailExists = $email ? \App\Models\User::where('email', $email)->exists() : false;
 
                 if ($phoneExists || $emailExists) {
                     return redirect()->back()
@@ -92,18 +92,11 @@ class OrderController extends Controller
 
                 $branchId = $request->branch_id ?? session('pickup_branch_id');
 
-                $branch = \App\Models\Branch::where('active', 1)->with('workingHours')->find($branchId);
+                $branch = \App\Models\Branch::where('active', 1)->find($branchId);
                 if (!$branch) {
                     return redirect()->back()
                         ->withInput()
                         ->with('error', __('website.invalid_branch') ?? 'الفرع المختار غير صحيح');
-                }
-
-                // Check if branch is currently open
-                if (!$branch->isCurrentlyOpen()) {
-                    return redirect()->back()
-                        ->withInput()
-                        ->with('error', __('website.restaurant_is_closed') ?? 'المطعم مغلق حالياً ولا يمكن إتمام الطلب');
                 }
 
                 if ($request->meal_type === 'scheduled') {
@@ -131,41 +124,30 @@ class OrderController extends Controller
             if ($isPickup) {
                 $branchId = $request->branch_id ?? session('pickup_branch_id');
             } else {
-                // For delivery, check if any branch in the city is open
                 $userLocation = session('user_location');
                 if ($userLocation && isset($userLocation['city_id']) && $userLocation['city_id']) {
                     $cityId = (int) $userLocation['city_id'];
-                    $branches = \App\Models\Branch::where('active', 1)
-                        ->whereHas('cities', function($q) use ($cityId) {
+                    $branch = \App\Models\Branch::where('active', 1)
+                        ->whereHas('cities', function ($q) use ($cityId) {
                             $q->where('locations.id', $cityId);
                         })
-                        ->with('workingHours')
-                        ->get();
+                        ->first();
 
-                    // Check if at least one branch is open
-                    $hasOpenBranch = false;
-                    foreach ($branches as $branch) {
-                        if ($branch->isCurrentlyOpen()) {
-                            $hasOpenBranch = true;
-                            $branchId = $branch->id;
-                            break;
-                        }
-                    }
-
-                    if (!$hasOpenBranch && $branches->isNotEmpty()) {
-                        return redirect()->back()
-                            ->withInput()
-                            ->with('error', __('website.restaurant_is_closed') ?? 'المطعم مغلق حالياً ولا يمكن إتمام الطلب');
-                    }
-
-                    // If no branch found but we have a city, try to get first branch
-                    if (!$branchId && $branches->isNotEmpty()) {
-                        $branchId = $branches->first()->id;
+                    if ($branch) {
+                        $branchId = $branch->id;
                     }
                 }
             }
 
+            if ($branch && !$branch->isOpen()) {
+                DB::rollBack();
+                return redirect()->back()
+                    ->withInput()
+                    ->with('error', __('website.branch_closed') ?? 'الفرع مغلق حالياً');
+            }
+
             $scheduledDate = null;
+
             $scheduledTime = null;
 
             if ($isPickup && $request->meal_type === 'scheduled') {
@@ -180,14 +162,30 @@ class OrderController extends Controller
                 }
             }
 
+            $branchStockService = app(\App\Services\BranchStockService::class);
+
             // Validate all products are available before creating order
             foreach ($cart as $item) {
-                $product = Product::where('active', true)
+                $product = Product::withoutGlobalScope('city_availability')->where('active', true)
                     ->find($item['product_id']);
                 if (!$product) {
                     DB::rollBack();
                     return redirect()->back()
                         ->with('error', __('website.product_not_found') ?? 'أحد المنتجات غير موجود')
+                        ->withInput();
+                }
+
+                $stockError = $branchStockService->validateCartQuantity(
+                    $product,
+                    (int) ($item['quantity'] ?? 1),
+                    $branchId
+                );
+                if ($stockError) {
+                    DB::rollBack();
+                    $productName = $product->getTranslation('name', app()->getLocale())
+                        ?: ($product->name['ar'] ?? '');
+                    return redirect()->back()
+                        ->with('error', $productName ? "{$productName}: {$stockError}" : $stockError)
                         ->withInput();
                 }
 
@@ -210,7 +208,7 @@ class OrderController extends Controller
                     if ($userLocation && isset($userLocation['city_id']) && $userLocation['city_id']) {
                         $cityId = (int) $userLocation['city_id'];
                         $isAvailable = $product->branches()
-                            ->whereHas('cities', function($q) use ($cityId) {
+                            ->whereHas('cities', function ($q) use ($cityId) {
                                 $q->where('locations.id', $cityId);
                             })
                             ->where('branches.active', true)
@@ -227,8 +225,44 @@ class OrderController extends Controller
                 }
             }
 
+            // Minimum Order Validation for Delivery
+            if ($orderType === 'delivery') {
+                $userLocation = session('user_location');
+                if ($userLocation && isset($userLocation['city_id']) && $userLocation['city_id']) {
+                    $cityId = (int) $userLocation['city_id'];
+                    $city = \App\Models\Location::where('active', true)->find($cityId);
+                    
+                    if ($city && $city->min_order_near > 0) {
+                        $cartSubtotal = 0;
+                        foreach ($cart as $item) {
+                            $cartSubtotal += (float) ($item['price'] ?? 0);
+                        }
+                        
+                        if ($cartSubtotal < $city->min_order_near) {
+                            DB::rollBack();
+                            return redirect()->back()
+                                ->withInput()
+                                ->with('error', __('website.min_order_error', ['amount' => number_format($city->min_order_near, 3)]));
+                        }
+                    }
+                }
+            }
+
+            $addressId = ($isAuthenticated && $orderType === 'delivery') ? $request->address_id : null;
+            $orderLat = null;
+            $orderLong = null;
+
+            if ($addressId) {
+                $address = \App\Models\Address::find($addressId);
+                if ($address) {
+                    $orderLat = $address->latitude;
+                    $orderLong = $address->longitude;
+                }
+            }
+
             $order = Order::create([
                 'user_id' => $isAuthenticated ? auth('web')->id() : null,
+                'address_id' => $addressId,
                 'guest_name' => !$isAuthenticated ? $request->guest_name : null,
                 'guest_phone' => !$isAuthenticated ? $request->guest_phone : null,
                 'guest_email' => !$isAuthenticated ? $request->guest_email : null,
@@ -239,8 +273,8 @@ class OrderController extends Controller
                 'branch_id' => $branchId,
                 'scheduled_date' => $scheduledDate,
                 'scheduled_time' => $scheduledTime,
-                'lat' => $isAuthenticated && auth('web')->user()->lat ? auth('web')->user()->lat : null,
-                'long' => $isAuthenticated && auth('web')->user()->long ? auth('web')->user()->long : null,
+                'lat' => $orderLat,
+                'long' => $orderLong,
                 'status' => 'pending',
                 'total' => 0,
             ]);
@@ -248,9 +282,10 @@ class OrderController extends Controller
             $total = 0;
 
             foreach ($cart as $item) {
-                $product = Product::where('active', true)
+                $product = Product::withoutGlobalScope('city_availability')->where('active', true)
                     ->find($item['product_id']);
-                if (!$product) continue;
+                if (!$product)
+                    continue;
 
                 $itemPrice = (float) $item['price'];
 
@@ -285,7 +320,8 @@ class OrderController extends Controller
 
                 if (!empty($item['is_box']) && !empty($item['box_addons']) && is_array($item['box_addons'])) {
                     foreach ($item['box_addons'] as $subProductId => $addonIds) {
-                        if (!is_array($addonIds)) continue;
+                        if (!is_array($addonIds))
+                            continue;
                         foreach ($addonIds as $addonId) {
                             $addon = Addon::where('active', 1)->find($addonId);
                             if ($addon) {
@@ -339,6 +375,8 @@ class OrderController extends Controller
                 'discount_amount' => $voucherDiscount,
             ]);
 
+            event(new \App\Events\NewOrder($order));
+
             DB::commit();
 
             return redirect()->route('website.orders.payment', $order->id);
@@ -350,84 +388,59 @@ class OrderController extends Controller
 
     public function payment($orderId)
     {
-        $order = Order::with('items.addons', 'items.product', 'branch')->findOrFail($orderId);
+        $order = Order::with('items.addons', 'items.product')->findOrFail($orderId);
 
-        // Check if restaurant is closed
-        $restaurantIsClosed = false;
-        if ($order->order_type === 'pick_up' && $order->branch) {
-            $order->branch->load('workingHours');
-            $restaurantIsClosed = !$order->branch->isCurrentlyOpen();
-        } elseif ($order->order_type === 'delivery') {
-            $cityId = $order->city_id ?? null;
-            if ($cityId) {
-                $branches = \App\Models\Branch::where('active', 1)
-                    ->whereHas('cities', function($q) use ($cityId) {
-                        $q->where('locations.id', $cityId);
-                    })
-                    ->with('workingHours')
-                    ->get();
+        $stockError = app(\App\Services\BranchStockService::class)->validateOrderItems($order);
+        if ($stockError) {
+            return redirect()->route('cart.index')->with('error', $stockError);
+        }
 
-                $hasOpenBranch = false;
-                foreach ($branches as $branch) {
-                    if ($branch->isCurrentlyOpen()) {
-                        $hasOpenBranch = true;
-                        break;
+        $subProductIds = [];
+        $addonIds = [];
+        foreach ($order->items as $item) {
+            if ($item->meta && isset($item->meta['subproducts'])) {
+                foreach ($item->meta['subproducts'] as $sp) {
+                    if (isset($sp['product_id'])) {
+                        $subProductIds[] = $sp['product_id'];
+                    }
+                    if (isset($sp['addons']) && is_array($sp['addons'])) {
+                        $addonIds = array_merge($addonIds, $sp['addons']);
                     }
                 }
-
-                $restaurantIsClosed = !$hasOpenBranch && $branches->isNotEmpty();
             }
         }
-
-        if ($restaurantIsClosed) {
-            return redirect()->route('website.checkout')
-                ->with('error', __('website.restaurant_is_closed') ?? 'المطعم مغلق حالياً ولا يمكن إتمام الطلب');
+        
+        $subProducts = [];
+        if (!empty($subProductIds)) {
+            $subProducts = Product::withoutGlobalScope('city_availability')
+                ->whereIn('id', $subProductIds)
+                ->pluck('name', 'id')
+                ->toArray();
+        }
+        
+        $subAddons = [];
+        if (!empty($addonIds)) {
+            $subAddons = Addon::where('active', 1)
+                ->whereIn('id', $addonIds)
+                ->pluck('name', 'id')
+                ->toArray();
         }
 
-        return view('website.checkout.payment', compact('order'));
+        return view('website.checkout.payment', compact('order', 'subProducts', 'subAddons'));
     }
 
     public function payment_post($orderId, Request $request)
     {
-        $order = Order::with('items.addons', 'items.product', 'branch')->findOrFail($orderId);
-
-        // Check if restaurant is closed
-        $restaurantIsClosed = false;
-        if ($order->order_type === 'pick_up' && $order->branch) {
-            $order->branch->load('workingHours');
-            $restaurantIsClosed = !$order->branch->isCurrentlyOpen();
-        } elseif ($order->order_type === 'delivery') {
-            $cityId = $order->city_id ?? null;
-            if ($cityId) {
-                $branches = \App\Models\Branch::where('active', 1)
-                    ->whereHas('cities', function($q) use ($cityId) {
-                        $q->where('locations.id', $cityId);
-                    })
-                    ->with('workingHours')
-                    ->get();
-
-                $hasOpenBranch = false;
-                foreach ($branches as $branch) {
-                    if ($branch->isCurrentlyOpen()) {
-                        $hasOpenBranch = true;
-                        break;
-                    }
-                }
-
-                $restaurantIsClosed = !$hasOpenBranch && $branches->isNotEmpty();
-            }
-        }
-
-        if ($restaurantIsClosed) {
-            return redirect()->route('website.checkout')
-                ->with('error', __('website.restaurant_is_closed') ?? 'المطعم مغلق حالياً ولا يمكن إتمام الطلب');
-        }
-
+        $order = Order::with('items.addons', 'items.product')->findOrFail($orderId);
         $paymentMethod = $request->input('payment_method');
-        $payType = $request->input('pay_type', 'knet'); // Default to knet
 
         if (!$paymentMethod) {
             return back()->with('error', __('website.please_select_payment_method'));
+        }
+
+        $stockError = app(\App\Services\BranchStockService::class)->validateOrderItems($order);
+        if ($stockError) {
+            return back()->with('error', $stockError);
         }
 
         try {
@@ -463,55 +476,52 @@ class OrderController extends Controller
                         'status' => 'processing'
                     ]);
 
+                    $stockError = app(\App\Services\BranchStockService::class)->validateOrderItems($order);
+                    if ($stockError) {
+                        throw new \RuntimeException($stockError);
+                    }
+
+                    $order->deductStock();
+
                     $this->createBoxChildItems($order);
 
                     // Add points to user after successful payment
                     $this->addPointsToUser($order);
 
-                    // Send notification to all admins
-                    $this->sendOrderNotification($order);
+                    // Send SMS notification to admin
+                    $this->sendOrderSmsToAdmin($order);
 
                     DB::commit();
 
                     session()->forget(['cart', 'applied_voucher']);
 
                     // Send Firebase notification after successful payment
-                    $firebaseSent = false;
                     try {
                         $order->load('branch');
                         if ($order->branch && $order->branch->firebase) {
                             $lang = $order->branch->lang ?? 'ar';
-                            $firebaseService = new FirebaseNotificationService();
-                            $result = $firebaseService->sendNewOrderNotification($order, $lang);
-                            $firebaseSent = $result['success'] ?? false;
+                            try {
+                                $firebaseService = new FirebaseNotificationService();
+                                $firebaseService->sendNewOrderNotification($order, $lang);
+                            } catch (\ParseError $e) {
+                                \Log::error('Firebase Parse Error - PHP version incompatibility', [
+                                    'order_id' => $order->id,
+                                    'error' => $e->getMessage(),
+                                    'php_version' => PHP_VERSION,
+                                    'message' => 'Firebase requires PHP 8.3+. Notification skipped.'
+                                ]);
+                            } catch (\Exception $e) {
+                                \Log::error('Failed to send Firebase notification for new order (wallet payment)', [
+                                    'order_id' => $order->id,
+                                    'error' => $e->getMessage(),
+                                ]);
+                            }
                         }
                     } catch (\Exception $e) {
-                        \Log::error('Failed to send Firebase notification for new order (wallet payment)', [
+                        \Log::error('Failed to initialize Firebase notification service', [
                             'order_id' => $order->id,
                             'error' => $e->getMessage(),
                         ]);
-                        $firebaseSent = false;
-                    }
-
-                    // Send to Armada for delivery orders
-                    if ($order->order_type === 'delivery') {
-                        try {
-                            $order->load('branch');
-                            if ($order->branch && !empty($order->branch->armada_key)) {
-                                \Log::info('Sending order to Armada (wallet payment)', [
-                                    'order_id' => $order->id,
-                                    'branch_id' => $order->branch_id,
-                                ]);
-                                $this->armadaService->createOrder($order);
-                            }
-                        } catch (\Exception $e) {
-                            \Log::error('Failed to create Armada Order (wallet payment)', [
-                                'order_id' => $order->id,
-                                'branch_id' => $order->branch_id,
-                                'error' => $e->getMessage(),
-                                'trace' => $e->getTraceAsString()
-                            ]);
-                        }
                     }
 
                     // Send WhatsApp confirmation message
@@ -526,25 +536,25 @@ class OrderController extends Controller
                         ]);
                     }
 
-                    // Armada delivery integration disabled - will be triggered manually if needed
-                    // if ($order->order_type === 'delivery') {
-                    //     try {
-                    //         $order->load('branch');
-                    //         \Log::info('Attempting to create Armada order (wallet payment)', [
-                    //             'order_id' => $order->id,
-                    //             'branch_id' => $order->branch_id,
-                    //             'has_armada_key' => !empty($order->branch->armada_key ?? null)
-                    //         ]);
-                    //         $this->armadaService->createOrder($order);
-                    //     } catch (\Exception $e) {
-                    //         \Log::error('Failed to create Armada Order (wallet payment)', [
-                    //             'order_id' => $order->id,
-                    //             'branch_id' => $order->branch_id,
-                    //             'error' => $e->getMessage(),
-                    //             'trace' => $e->getTraceAsString()
-                    //         ]);
-                    //     }
-                    // }
+                    // Trigger Armada for delivery orders
+                    if ($order->order_type === 'delivery') {
+                        try {
+                            $order->load('branch');
+                            \Log::info('Attempting to create Armada order (wallet payment)', [
+                                'order_id' => $order->id,
+                                'branch_id' => $order->branch_id,
+                                'has_armada_key' => !empty($order->branch->armada_key ?? null)
+                            ]);
+                            $this->armadaService->createOrder($order);
+                        } catch (\Exception $e) {
+                            \Log::error('Failed to create Armada Order (wallet payment)', [
+                                'order_id' => $order->id,
+                                'branch_id' => $order->branch_id,
+                                'error' => $e->getMessage(),
+                                'trace' => $e->getTraceAsString()
+                            ]);
+                        }
+                    }
 
                     return redirect()->route('website.orders.success', $order->id)
                         ->with('success', __('website.payment_successful'));
@@ -568,13 +578,13 @@ class OrderController extends Controller
                     DB::commit();
 
 
-                    return $this->processBookeeyPayment($order, $gatewayAmount, $payType);
+                    return $this->processMyFatoorahPayment($order, $gatewayAmount);
 
-                case 'knet':
+                case 'myfatoorah':
                     $gatewayAmount = $orderTotal;
 
                     $order->update([
-                        'payment_method' => 'knet',
+                        'payment_method' => 'myfatoorah',
                         'wallet_amount' => 0,
                         'gateway_amount' => $gatewayAmount,
                         'payment_status' => 'pending'
@@ -582,154 +592,7 @@ class OrderController extends Controller
 
                     DB::commit();
 
-                    return $this->processBookeeyPayment($order, $gatewayAmount, 'knet');
-
-                case 'credit':
-                    $gatewayAmount = $orderTotal;
-
-                    $order->update([
-                        'payment_method' => 'credit',
-                        'wallet_amount' => 0,
-                        'gateway_amount' => $gatewayAmount,
-                        'payment_status' => 'pending'
-                    ]);
-
-                    DB::commit();
-
-                    return $this->processBookeeyPayment($order, $gatewayAmount, 'credit');
-
-                case 'amex':
-                    $gatewayAmount = $orderTotal;
-
-                    $order->update([
-                        'payment_method' => 'amex',
-                        'wallet_amount' => 0,
-                        'gateway_amount' => $gatewayAmount,
-                        'payment_status' => 'pending'
-                    ]);
-
-                    DB::commit();
-
-                    return $this->processBookeeyPayment($order, $gatewayAmount, 'amex');
-
-                case 'applepay':
-                    $gatewayAmount = $orderTotal;
-
-                    $order->update([
-                        'payment_method' => 'applepay',
-                        'wallet_amount' => 0,
-                        'gateway_amount' => $gatewayAmount,
-                        'payment_status' => 'pending'
-                    ]);
-
-                    DB::commit();
-
-                    return $this->processBookeeyPayment($order, $gatewayAmount, 'applepay');
-
-                case 'cash':
-                    // Check if cash on delivery is enabled
-                    if (\App\Models\Setting::getValue('enable_cash_on_delivery') != '1') {
-                        return back()->with('error', __('website.invalid_payment_method'));
-                    }
-
-                    $order->update([
-                        'payment_method' => 'cash',
-                        'wallet_amount' => 0,
-                        'gateway_amount' => 0,
-                        'payment_status' => 'pending', // Payment upon delivery
-                        'status' => 'processing'
-                    ]);
-
-                    $this->createBoxChildItems($order);
-
-                    // Add points to user
-                    $this->addPointsToUser($order);
-
-                    // Send notification to all admins
-                    $this->sendOrderNotification($order);
-
-                    DB::commit();
-
-                    session()->forget(['cart', 'applied_voucher']);
-                    
-                    // Send Firebase notification
-                    try {
-                        $order->load('branch');
-                        if ($order->branch && $order->branch->firebase) {
-                            $lang = $order->branch->lang ?? 'ar';
-                            $firebaseService = new \App\Services\FirebaseNotificationService();
-                            $firebaseService->sendNewOrderNotification($order, $lang);
-                        }
-                    } catch (\Exception $e) {
-                         \Log::error('Failed to send Firebase notification for new order (cash payment)', [
-                            'order_id' => $order->id,
-                            'error' => $e->getMessage(),
-                        ]);
-                    }
-                    
-                    // Send to Armada for delivery orders
-                    if ($order->order_type === 'delivery') {
-                        try {
-                            $order->load('branch');
-                            if ($order->branch && !empty($order->branch->armada_key)) {
-                                \Log::info('Sending order to Armada (cash payment)', [
-                                    'order_id' => $order->id,
-                                    'branch_id' => $order->branch_id,
-                                ]);
-                                $this->armadaService->createOrder($order);
-                            }
-                        } catch (\Exception $e) {
-                            \Log::error('Failed to create Armada Order (cash payment)', [
-                                'order_id' => $order->id,
-                                'branch_id' => $order->branch_id,
-                                'error' => $e->getMessage(),
-                                'trace' => $e->getTraceAsString()
-                            ]);
-                        }
-                    }
-
-                    // Send WhatsApp confirmation
-                    try {
-                        $order->load('user');
-                        $whatsappService = new \App\Services\WhatsAppService();
-                        $whatsappService->sendOrderConfirmation($order);
-                    } catch (\Exception $e) {
-                        \Log::error('Failed to send WhatsApp confirmation for new order (cash payment)', [
-                            'order_id' => $order->id,
-                            'error' => $e->getMessage(),
-                        ]);
-                    }
-
-                    return redirect()->route('website.orders.success', $order->id)
-                        ->with('success', __('website.order_placed_successfully'));
-
-                case 'bookeey':
-                    $gatewayAmount = $orderTotal;
-
-                    $order->update([
-                        'payment_method' => 'bookeey',
-                        'wallet_amount' => 0,
-                        'gateway_amount' => $gatewayAmount,
-                        'payment_status' => 'pending'
-                    ]);
-
-                    DB::commit();
-
-                    return $this->processBookeeyPayment($order, $gatewayAmount, $payType);
-
-                case 'myfatoorah': // Fallback or legacy support if needed
-                    $gatewayAmount = $orderTotal;
-
-                    $order->update([
-                        'payment_method' => 'bookeey', // Migrate to bookeey
-                        'wallet_amount' => 0,
-                        'gateway_amount' => $gatewayAmount,
-                        'payment_status' => 'pending'
-                    ]);
-
-                    DB::commit();
-
-                    return $this->processBookeeyPayment($order, $gatewayAmount, $payType);
+                    return $this->processMyFatoorahPayment($order, $gatewayAmount);
 
                 default:
                     return back()->with('error', __('website.invalid_payment_method'));
@@ -750,45 +613,44 @@ class OrderController extends Controller
         }
     }
 
-    private function processBookeeyPayment($order, $amount, $payType = 'knet')
+    private function processMyFatoorahPayment($order, $amount)
     {
         try {
-            $bookeey = new BookeeyService();
+            $myFatoorah = new MyFatoorahService();
 
             $phone = $order->user ? $order->user->phone : $order->guest_phone;
             $phone = preg_replace('/[^0-9]/', '', $phone);
 
-            $amount = number_format((float)$amount, 3, '.', '');
+            $amount = number_format((float) $amount, 3, '.', '');
 
             $invoiceData = [
-                'CustomerName'       => $order->user ? $order->user->name : $order->guest_name,
-                'InvoiceValue'       => $amount,
-                'CustomerEmail'      => $order->user ? $order->user->email : $order->guest_email,
-                'CallBackUrl'        => route('website.orders.payment.callback', $order->id),
-                'ErrorUrl'           => route('website.orders.payment.failed', $order->id),
-                'CustomerMobile'     => $phone,
-                'CustomerReference'  => $order->order_number,
-                'pay_type'           => $payType, // Pass pay_type to Bookeey service
-                // 'UserDefinedField'   => 'Order-' . $order->id, // Add if supported
+                'CustomerName' => $order->user ? $order->user->name : $order->guest_name,
+                'InvoiceValue' => $amount,
+                'DisplayCurrencyIso' => config('myfatoorah.currency', 'KWD'),
+                'CustomerEmail' => $order->user ? $order->user->email : $order->guest_email,
+                'CallBackUrl' => route('website.orders.payment.callback', $order->id),
+                'ErrorUrl' => route('website.orders.payment.failed', $order->id),
+                'MobileCountryCode' => '+965',
+                'CustomerMobile' => $phone,
+                'Language' => 'en',
+                'CustomerReference' => $order->order_number,
+                'UserDefinedField' => 'Order-' . $order->id,
+                'NotificationOption' => 'Lnk',
             ];
 
-            $payment = $bookeey->createInvoice($invoiceData);
+            $payment = $myFatoorah->createInvoice($invoiceData);
 
             if ($payment['success']) {
-                // Save trackId or paymentId for status checking
-                $paymentId = $payment['trackId'] ?? $payment['paymentId'] ?? $payment['invoiceId'] ?? null;
-                if ($paymentId) {
-                    $order->update(['payment_id' => $paymentId]);
-                }
+                $order->update(['payment_id' => $payment['invoiceId']]);
 
                 return redirect($payment['invoiceURL']);
             }
 
-            throw new \Exception($payment['error'] ?? 'Invoice creation failed');
+            throw new \Exception('Invoice creation failed');
 
         } catch (\Exception $e) {
             // Log the full error
-            \Log::error('Bookeey Payment Error', [
+            \Log::error('MyFatoorah Payment Error', [
                 'order_id' => $order->id,
                 'amount' => $amount,
                 'payment_method' => $order->payment_method,
@@ -796,12 +658,13 @@ class OrderController extends Controller
             ]);
 
             // Save failed payment status in database
+            // Note: For mixed payments, wallet was NOT deducted yet, so no refund needed
             $order->update([
                 'payment_status' => 'failed',
                 'payment_response' => json_encode([
                     'error' => $e->getMessage(),
                     'timestamp' => now(),
-                    'note' => 'Bookeey payment initiation failed'
+                    'note' => 'Wallet not deducted - payment failed before completion'
                 ])
             ]);
 
@@ -823,12 +686,19 @@ class OrderController extends Controller
             }
             $meta = $parentItem->meta ?? [];
             $subproducts = $meta['subproducts'] ?? [];
-            $subProducts = $product->products()->get();
             $addonsBySubId = [];
             foreach ($subproducts as $sp) {
                 $pid = (int) ($sp['product_id'] ?? 0);
                 $addonsBySubId[$pid] = array_map('intval', (array) ($sp['addons'] ?? []));
             }
+            
+            $selectedProductIds = array_keys($addonsBySubId);
+            if (empty($selectedProductIds)) {
+                continue;
+            }
+            
+            $subProducts = Product::withoutGlobalScope('city_availability')->whereIn('id', $selectedProductIds)->get();
+            
             foreach ($subProducts as $subProduct) {
                 $child = OrderItem::create([
                     'order_id' => $order->id,
@@ -860,32 +730,16 @@ class OrderController extends Controller
         $order = Order::findOrFail($orderId);
 
         try {
-            $bookeey = new BookeeyService();
-            // Bookeey uses order_number (MerchantTxnRefNo) for status check
-            // TrackId may come in callback but we use order_number for status check
-            $trackId = $request->input('TrackId') ?? $request->input('trackId') ?? $request->input('paymentId');
-            if ($trackId) {
-                $order->update(['payment_id' => $trackId]);
-            }
+            $myFatoorah = new MyFatoorahService();
+            $paymentId = $request->input('paymentId');
 
-            // Use order_number for status check (MerchantTxnRefNo)
-            $payment = $bookeey->getPaymentStatus($order->order_number);
-
-            // Log payment status for debugging
-            \Log::info('Payment Callback - Payment Status Check', [
-                'order_id' => $order->id,
-                'order_number' => $order->order_number,
-                'payment_success' => $payment['success'] ?? false,
-                'payment_isPaid' => $payment['isPaid'] ?? false,
-                'payment_status' => $payment['status'] ?? 'unknown',
-                'payment_data' => $payment['paymentStatus'] ?? null
-            ]);
+            $payment = $myFatoorah->getPaymentStatus($paymentId);
 
             $order->update([
-                'payment_response' => json_encode($payment['data'] ?? [])
+                'payment_response' => json_encode($payment['data'])
             ]);
 
-            if ($payment['success'] && (($payment['isPaid'] ?? false) || $payment['status'] == 'Paid' || $payment['status'] == 'Captured')) {
+            if ($payment['success'] && $payment['status'] == 'Paid') {
                 if ($order->payment_method === 'mixed' && $order->wallet_amount > 0) {
                     $user = $order->user;
                     if ($user && $user->wallet) {
@@ -908,53 +762,53 @@ class OrderController extends Controller
                     'status' => 'processing'
                 ]);
 
+                $stockError = app(\App\Services\BranchStockService::class)->validateOrderItems($order);
+                if ($stockError) {
+                    return redirect()->route('website.checkout.payment', $order->id)
+                        ->with('error', $stockError);
+                }
+
+                $order->deductStock();
+
                 $this->createBoxChildItems($order);
 
                 // Add points to user after successful payment
                 $this->addPointsToUser($order);
 
-                // Send notification to all admins
-                $this->sendOrderNotification($order);
+                // Send SMS notification to admin
+                $this->sendOrderSmsToAdmin($order);
+
+
 
                 session()->forget(['cart', 'applied_voucher']);
 
                 // Send Firebase notification after successful payment
-                $firebaseSent = false;
                 try {
                     $order->load('branch');
                     if ($order->branch && $order->branch->firebase) {
                         $lang = $order->branch->lang ?? 'ar';
-                        $firebaseService = new FirebaseNotificationService();
-                        $result = $firebaseService->sendNewOrderNotification($order, $lang);
-                        $firebaseSent = $result['success'] ?? false;
+                        try {
+                            $firebaseService = new FirebaseNotificationService();
+                            $firebaseService->sendNewOrderNotification($order, $lang);
+                        } catch (\ParseError $e) {
+                            \Log::error('Firebase Parse Error - PHP version incompatibility', [
+                                'order_id' => $order->id,
+                                'error' => $e->getMessage(),
+                                'php_version' => PHP_VERSION,
+                                'message' => 'Firebase requires PHP 8.3+. Notification skipped.'
+                            ]);
+                        } catch (\Exception $e) {
+                            \Log::error('Failed to send Firebase notification for new order (electronic payment)', [
+                                'order_id' => $order->id,
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
                     }
                 } catch (\Exception $e) {
-                    \Log::error('Failed to send Firebase notification for new order (electronic payment)', [
+                    \Log::error('Failed to initialize Firebase notification service', [
                         'order_id' => $order->id,
                         'error' => $e->getMessage(),
                     ]);
-                    $firebaseSent = false;
-                }
-
-                // Send to Armada for delivery orders
-                if ($order->order_type === 'delivery') {
-                    try {
-                        $order->load('branch');
-                        if ($order->branch && !empty($order->branch->armada_key)) {
-                            \Log::info('Sending order to Armada (electronic payment)', [
-                                'order_id' => $order->id,
-                                'branch_id' => $order->branch_id,
-                            ]);
-                            $this->armadaService->createOrder($order);
-                        }
-                    } catch (\Exception $e) {
-                        \Log::error('Failed to create Armada Order (electronic payment)', [
-                            'order_id' => $order->id,
-                            'branch_id' => $order->branch_id,
-                            'error' => $e->getMessage(),
-                            'trace' => $e->getTraceAsString()
-                        ]);
-                    }
                 }
 
                 // Send WhatsApp confirmation message
@@ -969,25 +823,25 @@ class OrderController extends Controller
                     ]);
                 }
 
-                // Armada delivery integration disabled - will be triggered manually if needed
-                // if ($order->order_type === 'delivery') {
-                //      try {
-                //         $order->load('branch');
-                //         \Log::info('Attempting to create Armada order', [
-                //             'order_id' => $order->id,
-                //             'branch_id' => $order->branch_id,
-                //             'has_armada_key' => !empty($order->branch->armada_key ?? null)
-                //         ]);
-                //         $this->armadaService->createOrder($order);
-                //      } catch (\Exception $e) {
-                //          \Log::error('Failed to create Armada Order', [
-                //              'order_id' => $order->id,
-                //              'branch_id' => $order->branch_id,
-                //              'error' => $e->getMessage(),
-                //              'trace' => $e->getTraceAsString()
-                //          ]);
-                //      }
-                // }
+                // Trigger Armada for delivery orders
+                if ($order->order_type === 'delivery') {
+                    try {
+                        $order->load('branch');
+                        \Log::info('Attempting to create Armada order', [
+                            'order_id' => $order->id,
+                            'branch_id' => $order->branch_id,
+                            'has_armada_key' => !empty($order->branch->armada_key ?? null)
+                        ]);
+                        $this->armadaService->createOrder($order);
+                    } catch (\Exception $e) {
+                        \Log::error('Failed to create Armada Order', [
+                            'order_id' => $order->id,
+                            'branch_id' => $order->branch_id,
+                            'error' => $e->getMessage(),
+                            'trace' => $e->getTraceAsString()
+                        ]);
+                    }
+                }
 
                 return redirect()->route('website.orders.success', $order->id)
                     ->with('success', __('website.payment_successful'));
@@ -1076,81 +930,53 @@ class OrderController extends Controller
         return (float) ($city->shipping_fee_near ?? 0);
     }
 
-    /**
-     * Add points to user after successful order payment
-     */
     private function addPointsToUser(Order $order): void
     {
-        try {
-            // Only add points if order is paid and user exists
-            if ($order->payment_status !== 'paid' || !$order->user) {
-                return;
+        if ($order->user_id && $order->total > 0) {
+            $pointsPerOrderValue = (float) \App\Models\Setting::getValue('points_per_order_value', null, '0');
+            if ($pointsPerOrderValue > 0) {
+                $points = (int) floor($order->total / $pointsPerOrderValue);
+                if ($points > 0) {
+                    $order->user->addPoints($points, 'earned from order #' . $order->order_number);
+                }
             }
-
-            // Get points per order value setting
-            $pointsPerOrderValue = (float) \App\Models\Setting::getValue('points_per_order_value', null, 10);
-
-            // If points per order value is 0 or less, don't add points
-            if ($pointsPerOrderValue <= 0) {
-                return;
-            }
-
-            // Calculate points based on order total
-            $orderTotal = (float) $order->total;
-            $pointsToAdd = $orderTotal * $pointsPerOrderValue;
-
-            // Add points to user
-            $user = $order->user;
-            $user->points = ($user->points ?? 0) + $pointsToAdd;
-            $user->save();
-
-            // Log points addition
-            \Log::info('Points added to user after order payment', [
-                'user_id' => $user->id,
-                'order_id' => $order->id,
-                'order_total' => $orderTotal,
-                'points_per_order_value' => $pointsPerOrderValue,
-                'points_added' => $pointsToAdd,
-                'total_points' => $user->points
-            ]);
-
-        } catch (\Exception $e) {
-            // Log error but don't fail the order
-            \Log::error('Failed to add points to user after order payment', [
-                'order_id' => $order->id,
-                'user_id' => $order->user_id,
-                'error' => $e->getMessage()
-            ]);
         }
     }
 
-    /**
-     * Send notification to all admins about new order
-     */
-    private function sendOrderNotification(Order $order): void
+    private function sendOrderSmsToAdmin(Order $order): void
     {
         try {
-            // Get all admin users
-            $admins = \App\Models\User::where('is_admin', 1)->get();
+            $smsActive = \App\Models\Setting::getValue('order_notification_sms_active', null, '0');
+            $adminPhone = \App\Models\Setting::getValue('order_notification_phone', null, '');
 
-            foreach ($admins as $admin) {
-                \App\Models\AdminNotification::create([
-                    'admin_id' => $admin->id,
-                    'order_id' => $order->id,
-                    'type' => 'order',
-                    'title' => __('admin.new_order_notification_title', ['order_number' => $order->order_number]),
-                    'message' => __('admin.new_order_notification_message', [
-                        'order_number' => $order->order_number,
-                        'total' => number_format($order->total, 3),
-                        'customer' => $order->user ? $order->user->name : $order->guest_name
-                    ]),
-                ]);
+            if ($smsActive != '1' || empty($adminPhone)) {
+                return;
             }
+
+            $order->loadMissing('items.product', 'branch');
+            
+            $itemsSummary = "";
+            foreach ($order->items as $item) {
+                $productName = $item->product->name[app()->getLocale()] ?? $item->product->name['ar'] ?? 'Product';
+                $itemsSummary .= "{$productName} (x{$item->quantity}), ";
+            }
+            $itemsSummary = rtrim($itemsSummary, ', ');
+
+            $branchName = $order->branch ? ($order->branch->name[app()->getLocale()] ?? $order->branch->name['ar'] ?? '') : 'N/A';
+            $orderType = __('website.' . $order->order_type) ?: $order->order_type;
+
+            $message = "New Order #{$order->order_number}\n";
+            $message .= "Items: {$itemsSummary}\n";
+            $message .= "Branch: {$branchName}\n";
+            $message .= "Type: {$orderType}\n";
+            $message .= "Total: " . number_format($order->total, 3) . " KWD";
+
+            $smsService = new \App\Services\SmsService();
+            $smsService->sendSms($adminPhone, $message);
+            
+            \Log::info("Admin SMS notification sent for order #{$order->order_number}");
         } catch (\Exception $e) {
-            \Log::error('Failed to send order notification', [
-                'order_id' => $order->id,
-                'error' => $e->getMessage()
-            ]);
+            \Log::error("Failed to send admin SMS notification for order #{$order->order_number}: " . $e->getMessage());
         }
     }
 }

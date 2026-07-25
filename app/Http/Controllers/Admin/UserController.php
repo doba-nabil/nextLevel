@@ -12,12 +12,16 @@ use App\Models\Address;
 use App\Services\CategoryService;
 use App\Services\UserService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class UserController extends Controller
 {
-    public function __construct(private UserService $userService) {}
+    public function __construct(private UserService $userService)
+    {
+        $this->middleware('permission:users.index')->only('index');
+        $this->middleware('permission:users.create')->only(['create', 'store']);
+        $this->middleware('permission:users.edit')->only(['edit', 'update']);
+        $this->middleware('permission:users.delete')->only('destroy');
+    }
 
 
     public function index(UserDataTable $dataTable)
@@ -37,6 +41,11 @@ class UserController extends Controller
             $request->file('image')
         );
         return redirect()->route('users.index')->with('success', __('admin.save_success'));
+    }
+
+    public function show($id)
+    {
+        abort(404);
     }
 
     public function edit($id)
@@ -74,7 +83,7 @@ class UserController extends Controller
         try {
             $user = $this->userService->getById($id);
             $isActive = $request->input('active', $user->status !== 'active');
-            
+
             // Toggle status: if active is true, set status to 'active', otherwise set to 'deactive'
             $user->status = $isActive ? 'active' : 'deactive';
             $user->save();
@@ -112,7 +121,7 @@ class UserController extends Controller
     public function storeAddress(Request $request, $id)
     {
         $user = $this->userService->getById($id);
-        
+
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'address' => 'nullable|string',
@@ -137,12 +146,18 @@ class UserController extends Controller
         // Build address string from components if address is not provided
         if (empty($validated['address'])) {
             $addressParts = [];
-            if (!empty($validated['block'])) $addressParts[] = __('admin.block') . ': ' . $validated['block'];
-            if (!empty($validated['street'])) $addressParts[] = __('admin.street') . ': ' . $validated['street'];
-            if (!empty($validated['avenue'])) $addressParts[] = __('admin.avenue') . ': ' . $validated['avenue'];
-            if (!empty($validated['building'])) $addressParts[] = __('admin.building') . ': ' . $validated['building'];
-            if (!empty($validated['floor'])) $addressParts[] = __('admin.floor') . ': ' . $validated['floor'];
-            if (!empty($validated['apartment'])) $addressParts[] = __('admin.apartment') . ': ' . $validated['apartment'];
+            if (!empty($validated['block']))
+                $addressParts[] = __('admin.block') . ': ' . $validated['block'];
+            if (!empty($validated['street']))
+                $addressParts[] = __('admin.street') . ': ' . $validated['street'];
+            if (!empty($validated['avenue']))
+                $addressParts[] = __('admin.avenue') . ': ' . $validated['avenue'];
+            if (!empty($validated['building']))
+                $addressParts[] = __('admin.building') . ': ' . $validated['building'];
+            if (!empty($validated['floor']))
+                $addressParts[] = __('admin.floor') . ': ' . $validated['floor'];
+            if (!empty($validated['apartment']))
+                $addressParts[] = __('admin.apartment') . ': ' . $validated['apartment'];
             $validated['address'] = implode(', ', $addressParts);
         }
 
@@ -210,12 +225,18 @@ class UserController extends Controller
         // Build address string from components if address is not provided
         if (empty($validated['address'])) {
             $addressParts = [];
-            if (!empty($validated['block'])) $addressParts[] = __('admin.block') . ': ' . $validated['block'];
-            if (!empty($validated['street'])) $addressParts[] = __('admin.street') . ': ' . $validated['street'];
-            if (!empty($validated['avenue'])) $addressParts[] = __('admin.avenue') . ': ' . $validated['avenue'];
-            if (!empty($validated['building'])) $addressParts[] = __('admin.building') . ': ' . $validated['building'];
-            if (!empty($validated['floor'])) $addressParts[] = __('admin.floor') . ': ' . $validated['floor'];
-            if (!empty($validated['apartment'])) $addressParts[] = __('admin.apartment') . ': ' . $validated['apartment'];
+            if (!empty($validated['block']))
+                $addressParts[] = __('admin.block') . ': ' . $validated['block'];
+            if (!empty($validated['street']))
+                $addressParts[] = __('admin.street') . ': ' . $validated['street'];
+            if (!empty($validated['avenue']))
+                $addressParts[] = __('admin.avenue') . ': ' . $validated['avenue'];
+            if (!empty($validated['building']))
+                $addressParts[] = __('admin.building') . ': ' . $validated['building'];
+            if (!empty($validated['floor']))
+                $addressParts[] = __('admin.floor') . ': ' . $validated['floor'];
+            if (!empty($validated['apartment']))
+                $addressParts[] = __('admin.apartment') . ': ' . $validated['apartment'];
             $validated['address'] = implode(', ', $addressParts);
         }
 
@@ -269,84 +290,53 @@ class UserController extends Controller
         ]);
     }
 
-    /**
-     * Convert user points to wallet (Admin function)
-     */
-    public function convertPointsToWallet(Request $request, $id)
+    public function convertPoints(Request $request, $id)
     {
         $user = $this->userService->getById($id);
-        
-        // Get settings
-        $pointsPerKd = (float) \App\Models\Setting::getValue('points_per_kd', null, 100);
-        $minimumPointsToConvert = (int) \App\Models\Setting::getValue('minimum_points_to_convert', null, 100);
-        
-        // Validate settings
-        if ($pointsPerKd <= 0) {
-            return response()->json([
-                'success' => false,
-                'message' => __('admin.points_conversion_not_configured')
-            ], 400);
+        $pointsToConvert = (int) $request->input('points', 0);
+
+        if ($pointsToConvert <= 0) {
+            return back()->with('error', 'Invalid points amount');
         }
-        
-        // Check user has points
-        $userPoints = $user->points ?? 0;
-        if ($userPoints <= 0) {
-            return response()->json([
-                'success' => false,
-                'message' => __('admin.user_has_no_points')
-            ], 400);
+
+        if ($user->points < $pointsToConvert) {
+            return back()->with('error', __('admin.insufficient_points'));
         }
-        
+
+        $conversionRate = (int) \App\Models\Setting::getValue('points_conversion_rate', null, '100');
+        $minPoints = (int) \App\Models\Setting::getValue('min_points_to_convert', null, '0');
+
+        if ($conversionRate <= 0) {
+            return back()->with('error', 'Conversion rate not set');
+        }
+
+        if ($pointsToConvert < $minPoints) {
+            return back()->with('error', __('admin.min_points_to_convert') . ': ' . $minPoints);
+        }
+
+        $amount = $pointsToConvert / $conversionRate;
+
         try {
-            DB::beginTransaction();
-            
-            // Calculate amount in KD
-            $amountInKd = $userPoints / $pointsPerKd;
-            
-            // Ensure wallet exists
-            $wallet = $user->wallet;
-            if (!$wallet) {
-                $wallet = $user->createWallet();
-            }
-            
-            // Add money to wallet
-            $transaction = $wallet->deposit($amountInKd, [
-                'notes' => __('admin.points_converted_to_wallet_by_admin', [
-                    'points' => $userPoints,
-                    'amount' => number_format($amountInKd, 3)
-                ])
-            ]);
-            
-            // Deduct points from user
-            $user->points = 0;
+            \DB::beginTransaction();
+
+            // Deduct points
+            $user->points -= $pointsToConvert;
             $user->save();
-            
-            DB::commit();
-            
-            return response()->json([
-                'success' => true,
-                'message' => __('admin.points_converted_successfully', [
-                    'points' => $userPoints,
-                    'amount' => number_format($amountInKd, 3)
-                ]),
-                'new_balance' => number_format($wallet->balance, 3),
-                'new_points' => 0
+
+            // Add to wallet
+            $user->wallet->deposit($amount, [
+                'description' => __('admin.points_converted_successfully') . " ({$pointsToConvert} points)"
             ]);
-            
+
+            \DB::commit();
+
+            return back()->with('success', __('admin.points_converted_successfully'));
+
         } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Admin Points Conversion Error', [
-                'user_id' => $user->id,
-                'admin_id' => auth('admin')->id(),
-                'points' => $userPoints,
-                'error' => $e->getMessage()
-            ]);
-            
-            return response()->json([
-                'success' => false,
-                'message' => __('admin.points_conversion_failed') . ': ' . $e->getMessage()
-            ], 500);
+            \DB::rollBack();
+            return back()->with('error', __('admin.update_error'));
         }
     }
+
 
 }

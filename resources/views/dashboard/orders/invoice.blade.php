@@ -296,7 +296,7 @@
             </tr>
         </thead>
         <tbody>
-            @foreach($order->items as $item)
+            @foreach($order->items->whereNull('parent_item_id') as $item)
                 <tr>
                     <td>
                         <strong>{{ $item->product->name ?? 'N/A' }}</strong>
@@ -322,6 +322,36 @@
                                             </div>
                                         @endif
                                     </div>
+                                @endforeach
+                            </div>
+                        @elseif($item->meta && isset($item->meta['is_box']) && $item->meta['is_box'] && isset($item->meta['subproducts']))
+                            <div style="font-size: 11px; color: #666; margin-top: 5px;">
+                                <strong>→ {{ __('admin.box_items') ?? 'Box Items' }}:</strong>
+                                @foreach($item->meta['subproducts'] as $sp)
+                                    @if(isset($sp['product_id']) && isset($subProducts[$sp['product_id']]))
+                                        @php
+                                            $spName = is_array($subProducts[$sp['product_id']]) 
+                                                ? ($subProducts[$sp['product_id']][app()->getLocale()] ?? $subProducts[$sp['product_id']]['en'] ?? 'Name')
+                                                : $subProducts[$sp['product_id']];
+                                        @endphp
+                                        <div style="margin-left: 10px;">
+                                            <strong>{{ $spName }}</strong>
+                                            @if(isset($sp['addons']) && is_array($sp['addons']))
+                                                <div style="margin-left: 15px;">
+                                                    @foreach($sp['addons'] as $addonId)
+                                                        @if(isset($subAddons[$addonId]))
+                                                            @php
+                                                                $addonName = is_array($subAddons[$addonId]) 
+                                                                    ? ($subAddons[$addonId][app()->getLocale()] ?? $subAddons[$addonId]['en'] ?? 'Name')
+                                                                    : $subAddons[$addonId];
+                                                            @endphp
+                                                            <div>• {{ $addonName }}</div>
+                                                        @endif
+                                                    @endforeach
+                                                </div>
+                                            @endif
+                                        </div>
+                                    @endif
                                 @endforeach
                             </div>
                         @endif

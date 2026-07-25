@@ -64,6 +64,12 @@ class BranchDataTable extends DataTable
                 $html .= '</ul>';
                 return $html;
             })
+            ->addColumn('lat', function ($branch) {
+                return $branch->lat ?? '-';
+            })
+            ->addColumn('lng', function ($branch) {
+                return $branch->lng ?? '-';
+            })
             ->addColumn('action', function ($branch) {
                 $editUrl = route('branches.edit', $branch->id);
                 $deleteUrl = route('branches.destroy', $branch->id);
@@ -81,7 +87,12 @@ class BranchDataTable extends DataTable
             </li>
             <li>
                 <a href="' . $productsUrl . '" class="dropdown-item">
-                    <i class="icon-base ti tabler-package"></i> ' . (__("admin.products") ?? "المنتجات") . '
+                    <i class="icon-base ti tabler-package"></i> ' . __("admin.branch_offerings") . '
+                </a>
+            </li>
+            <li>
+                <a href="' . route("branches.qr", $branch->id) . '" class="dropdown-item" target="_blank">
+                    <i class="icon-base ti tabler-qrcode"></i> ' . __("admin.qr_code") . '
                 </a>
             </li>
             <li>
@@ -180,6 +191,8 @@ class BranchDataTable extends DataTable
             Column::make('address')->title(__('admin.address'))->addClass('text-start'),
             Column::make('phone')->title(__('admin.phone'))->addClass('text-start'),
             Column::make('location')->title(__('admin.location'))->addClass('text-start'),
+            Column::make('lat')->title(__('admin.latitude') ?? 'Latitude')->addClass('text-start'),
+            Column::make('lng')->title(__('admin.longitude') ?? 'Longitude')->addClass('text-start'),
             Column::make('working_hours')->title(__('admin.working_hours'))->addClass('text-start'),
             Column::computed('status')->title(__('admin.status'))->addClass('text-start'),
             Column::computed('action')->title(__('admin.action'))

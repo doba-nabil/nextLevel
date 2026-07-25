@@ -46,6 +46,11 @@ return [
             'provider' => 'users',
             'session' => 'admin_session',
         ],
+        'branch' => [
+            'driver' => 'session',
+            'provider' => 'branches',
+            'session' => 'branch_session',
+        ],
     ],
 
     /*
@@ -68,7 +73,11 @@ return [
     'providers' => [
         'users' => [
             'driver' => 'eloquent',
-            'model' => env('AUTH_MODEL', App\Models\User::class),
+            'model' => App\Models\User::class,
+        ],
+        'branches' => [
+            'driver' => 'eloquent',
+            'model' => App\Models\Branch::class,
         ],
 
         // 'users' => [

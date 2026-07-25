@@ -2,16 +2,23 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+
 use Spatie\Translatable\HasTranslations;
 use OwenIt\Auditing\Contracts\Auditable;
 use OwenIt\Auditing\Auditable as AuditableTrait;
 
-class Branch extends Model implements Auditable
+class Branch extends Authenticatable implements Auditable
+
 
 {
     use HasTranslations, AuditableTrait;
     public $translatable = ['name', 'address'];
+
+    public function getRememberTokenName()
+    {
+        return '';
+    }
 
     protected $fillable = ['name', 'address', 'location_id', 'phone', 'whatsapp' , 'active', 'lat', 'lng', 'active', 'slug','username','password', 'firebase', 'lang', 'armada_key'];
 

@@ -59,6 +59,7 @@ Route::group(['prefix' => LaravelLocalization::setLocale(), 'middleware' => [\Ap
     Route::get('/categories/{slug?}', [CategoryController::class, 'categories'])->name('website.categories');
     Route::get('/branches/{slug?}', [BranchController::class, 'branches'])->name('website.branches');
     Route::get('/branches-by-city', [BranchController::class, 'getBranchesByCity'])->name('website.branches.by-city');
+    Route::get('/scan-qr/{identifier}', [BranchController::class, 'scanQr'])->name('website.scan.qr');
     Route::post('/save-pickup-branch', [BranchController::class, 'savePickupBranch'])->name('website.branches.save-pickup');
     Route::get('/products/{productId}/prices', [ProductController::class, 'getPrices'])->name('website.products.prices');
     Route::post('/products/{productId}/update-price', [ProductController::class, 'updatePrice'])->name('website.products.update-price');

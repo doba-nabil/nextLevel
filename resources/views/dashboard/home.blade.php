@@ -3,7 +3,28 @@
 @section('dashboard-main')
     <div class="container-xxl flex-grow-1 container-p-y">
         <div class="row g-6">
+  <!-- Clock Widget -->
+  <div class="col-xl-12 col-sm-12">
+    <div class="card bg-gradient-clock text-white border-0" style="background: linear-gradient(135deg, #0f2027, #203a43, #2c5364); border-radius: 15px;">
+        <div class="card-body py-6 px-8">
+            <div class="d-flex align-items-center justify-content-between">
+                <div>
+                    <h2 class="display-4 fw-bold mb-0 text-white" id="real-time-clock">--:--:--</h2>
+                    <p class="mb-0 opacity-75 fs-5" id="real-time-date">---- --, ----</p>
+                </div>
+                <div class="text-end">
+                    <span class="badge bg-label-light text-white border-0 px-4 py-2 fs-6" style="background: rgba(255,255,255,0.1) !important;">
+                        <i class="icon-base ti tabler-map-pin me-2"></i> {{ __('admin.kuwait_time') ?? 'Kuwait City' }}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+  </div>
+  <!--/ Clock Widget -->
+
   <!-- SMS Balance -->
+
   <div class="col-xl-12 col-sm-12">
     <div class="card h-100">
         <div class="card-header pb-0">
@@ -531,4 +552,36 @@
             to { transform: rotate(360deg); }
         }
     </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            function updateClock() {
+                const now = new Date();
+                const optionsTime = { 
+                    timeZone: 'Asia/Kuwait', 
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    second: '2-digit', 
+                    hour12: true 
+                };
+                const optionsDate = { 
+                    timeZone: 'Asia/Kuwait', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric',
+                    weekday: 'long'
+                };
+                
+                const locale = '{{ app()->getLocale() }}';
+                const timeString = now.toLocaleTimeString(locale === 'ar' ? 'ar-KW' : 'en-US', optionsTime);
+                const dateString = now.toLocaleDateString(locale === 'ar' ? 'ar-KW' : 'en-US', optionsDate);
+                
+                document.getElementById('real-time-clock').textContent = timeString;
+                document.getElementById('real-time-date').textContent = dateString;
+            }
+            
+            setInterval(updateClock, 1000);
+            updateClock();
+        });
+    </script>
 @endsection
+

@@ -40,6 +40,10 @@ Route::group(['prefix' => LaravelLocalization::setLocale() . '/admin', 'middlewa
     Route::resource('categories', CategoryController::class)->except('show');
     Route::post('categories/{id}/toggle-active', [CategoryController::class, 'toggleActive'])->name('categories.toggle-active');
     Route::get('categories/{id}/products', [CategoryController::class, 'getProducts'])->name('categories.products');
+    
+    Route::get('/branch-menu-copier', [\App\Http\Controllers\Admin\BranchMenuCopierController::class, 'index'])->name('admin.branch-menu-copier.index');
+    Route::post('/branch-menu-copier/copy', [\App\Http\Controllers\Admin\BranchMenuCopierController::class, 'copy'])->name('admin.branch-menu-copier.copy');
+
     Route::resource('menus', MenuController::class)->except('show');
     Route::get('menus/categories', [MenuController::class, 'getCategories'])->name('menus.get-categories');
     Route::get('menus/products', [MenuController::class, 'getProducts'])->name('menus.products');
@@ -62,6 +66,7 @@ Route::group(['prefix' => LaravelLocalization::setLocale() . '/admin', 'middlewa
     Route::resource('currencies', CurrencyController::class)->except('show');
 
     Route::resource('branches', BranchController::class)->except('show');
+    Route::get('branches/{id}/qr', [BranchController::class, 'showQr'])->name('branches.qr');
     Route::post('branches/check-city-availability', [BranchController::class, 'checkCityAvailability'])->name('branches.check-city-availability');
     Route::get('branches/{id}/products', [BranchController::class, 'products'])->name('branches.products');
     Route::post('branches/{id}/products/{productId}/toggle-status', [BranchController::class, 'toggleProductStatus'])->name('branches.products.toggle-status');
@@ -151,11 +156,20 @@ Route::group(['prefix' => LaravelLocalization::setLocale() . '/admin', 'middlewa
         Route::post('/{id}/mark-as-read', [NotificationController::class, 'markAsRead'])->name('mark-as-read');
         Route::post('/mark-all-as-read', [NotificationController::class, 'markAllAsRead'])->name('mark-all-as-read');
     });
+
+    Route::group(['prefix' => 'artisan', 'as' => 'admin.artisan.'], function () {
+        Route::get('request', [App\Http\Controllers\Admin\ArtisanWebController::class, 'showRequest'])->name('request');
+        Route::post('send-code', [App\Http\Controllers\Admin\ArtisanWebController::class, 'sendCode'])->name('send-code');
+        Route::get('console', [App\Http\Controllers\Admin\ArtisanWebController::class, 'showConsole'])->name('console');
+        Route::post('execute', [App\Http\Controllers\Admin\ArtisanWebController::class, 'execute'])->name('execute');
+        Route::get('logs', [App\Http\Controllers\Admin\ArtisanWebController::class, 'listLogs'])->name('logs.list');
+        Route::get('logs/view/{filename}', [App\Http\Controllers\Admin\ArtisanWebController::class, 'viewLog'])->name('logs.view');
+        Route::delete('logs/delete/{filename}', [App\Http\Controllers\Admin\ArtisanWebController::class, 'deleteLog'])->name('logs.delete');
+    });
 });
 
 Route::group(['prefix' => 'admin'], function () {
     Route::get('login', [AdminLoginController::class, 'showLoginForm'])->name('admin.login');
     Route::post('login', [AdminLoginController::class, 'login']);
     Route::post('logout', [AdminLoginController::class, 'logout'])->name('admin.logout');
-    Route::get('logout', [AdminLoginController::class, 'logout'])->name('admin.logoudt');
 });

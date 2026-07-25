@@ -12,6 +12,14 @@
                             <a href="{{ route('orders.invoice', $order->id) }}" target="_blank" class="btn btn-primary">
                                 <i class="icon-base ti tabler-file-invoice"></i> {{ __('admin.invoice') }}
                             </a>
+                            @if(strtolower($order->order_type) == 'delivery' && !$order->armada_id && $order->status == 'processing')
+                                <form action="{{ route('orders.send-to-armada', $order->id) }}" method="POST" class="d-inline">
+                                    @csrf
+                                    <button type="submit" class="btn btn-info">
+                                        <i class="icon-base ti tabler-truck-delivery"></i> {{ __('admin.send_to_armada') }}
+                                    </button>
+                                </form>
+                            @endif
                             <a href="{{ route('orders.index') }}" class="btn btn-secondary">
                                 <i class="icon-base ti tabler-arrow-left"></i> {{ __('admin.back') }}
                             </a>
@@ -68,11 +76,11 @@
                                 </div>
                                 <div class="mb-2">
                                     <strong>{{ __('admin.order_type') }}:</strong> 
-                                    <span class="badge bg-{{ $order->order_type === 'delivery' ? 'primary' : 'info' }}">
-                                        {{ $order->order_type === 'delivery' ? __('admin.delivery') : __('admin.pickup') }}
+                                    <span class="badge bg-{{ strtolower($order->order_type) === 'delivery' ? 'primary' : 'info' }}">
+                                        {{ strtolower($order->order_type) === 'delivery' ? __('admin.delivery') : __('admin.pickup') }}
                                     </span>
                                 </div>
-                                @if($order->order_type === 'delivery' && $order->delivery_cost)
+                                @if(strtolower($order->order_type) === 'delivery' && $order->delivery_cost)
                                     <div class="mb-2">
                                         <strong>{{ __('admin.delivery_cost') }}:</strong> 
                                         {{ number_format($order->delivery_cost, 3) }} {{ \App\Models\Currency::getCurrentCurrencySign() }}
@@ -140,7 +148,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach($order->items as $item)
+                                    @foreach($order->items->whereNull('parent_item_id') as $item)
                                         <tr>
                                             <td>
                                                 <div class="d-flex align-items-center">
@@ -162,6 +170,31 @@
                                                             <div class="small text-muted mt-1">
                                                                 @foreach($item->children as $child)
                                                                     <div>→ {{ $child->product->name ?? 'N/A' }}</div>
+                                                                @endforeach
+                                                            </div>
+                                                        @elseif($item->meta && isset($item->meta['is_box']) && $item->meta['is_box'] && isset($item->meta['subproducts']))
+                                                            <div class="small text-muted mt-1">
+                                                                @foreach($item->meta['subproducts'] as $sp)
+                                                                    @if(isset($sp['product_id']) && isset($subProducts[$sp['product_id']]))
+                                                                        @php
+                                                                            $spName = is_array($subProducts[$sp['product_id']]) 
+                                                                                ? ($subProducts[$sp['product_id']][app()->getLocale()] ?? $subProducts[$sp['product_id']]['en'] ?? 'Name')
+                                                                                : $subProducts[$sp['product_id']];
+                                                                        @endphp
+                                                                        <div>→ {{ $spName }}</div>
+                                                                        @if(isset($sp['addons']) && is_array($sp['addons']))
+                                                                            @foreach($sp['addons'] as $addonId)
+                                                                                @if(isset($subAddons[$addonId]))
+                                                                                    @php
+                                                                                        $addonName = is_array($subAddons[$addonId]) 
+                                                                                            ? ($subAddons[$addonId][app()->getLocale()] ?? $subAddons[$addonId]['en'] ?? 'Name')
+                                                                                            : $subAddons[$addonId];
+                                                                                    @endphp
+                                                                                    <div class="ms-3">+ {{ $addonName }}</div>
+                                                                                @endif
+                                                                            @endforeach
+                                                                        @endif
+                                                                    @endif
                                                                 @endforeach
                                                             </div>
                                                         @endif
@@ -211,7 +244,7 @@
                                                 <td class="text-end text-danger">-{{ number_format($order->discount_amount, 3) }} {{ \App\Models\Currency::getCurrentCurrencySign() }}</td>
                                             </tr>
                                         @endif
-                                        @if($order->order_type === 'delivery' && $order->delivery_cost > 0)
+                                        @if(strtolower($order->order_type) === 'delivery' && $order->delivery_cost > 0)
                                             <tr>
                                                 <td><strong>{{ __('admin.delivery_cost') }}:</strong></td>
                                                 <td class="text-end">{{ number_format($order->delivery_cost, 3) }} {{ \App\Models\Currency::getCurrentCurrencySign() }}</td>
@@ -292,7 +325,7 @@
                             @endif
                         @endif
 
-                        @if($order->order_type === 'delivery' && ($order->armada_id || $order->armada_link || $order->armada_qr))
+                        @if(strtolower($order->order_type) === 'delivery' && ($order->armada_id || $order->armada_link || $order->armada_qr))
                             <hr>
                             <h6 class="text-primary mb-3">{{ __('admin.armada_data') }}</h6>
                             <div class="card bg-light">
@@ -338,42 +371,74 @@
                                             </div>
                                         </div>
                                     @endif
+
+                                    @if($order->delivery_status)
+                                        <div class="mb-3">
+                                            <strong>{{ __('admin.delivery_status') }}:</strong>
+                                            <span class="badge bg-info ms-2">{{ __('admin.' . $order->delivery_status) }}</span>
+                                        </div>
+                                    @endif
+
+                                    @if($order->delivery_info && is_array($order->delivery_info) && isset($order->delivery_info['driver']))
+                                        <div class="card mt-3">
+                                            <div class="card-header py-2">
+                                                <small class="fw-bold">{{ __('admin.driver_info') }}</small>
+                                            </div>
+                                            <div class="card-body py-2">
+                                                @if(isset($order->delivery_info['driver']['name']))
+                                                    <div class="mb-1">
+                                                        <small><strong>{{ __('admin.name') }}:</strong> {{ $order->delivery_info['driver']['name'] }}</small>
+                                                    </div>
+                                                @endif
+                                                @if(isset($order->delivery_info['driver']['phoneNumber']))
+                                                    <div class="mb-1">
+                                                        <small><strong>{{ __('admin.phone') }}:</strong> {{ $order->delivery_info['driver']['phoneNumber'] }}</small>
+                                                    </div>
+                                                @endif
+                                            </div>
+                                        </div>
+                                    @endif
                                 </div>
                             </div>
-                        @elseif($order->order_type === 'delivery' && !$order->armada_id)
+                        @elseif(strtolower($order->order_type) === 'delivery' && !$order->armada_id)
                             <hr>
                             <div class="alert alert-info">
                                 <i class="icon-base ti tabler-info-circle"></i> {{ __('admin.no_armada_data') }}
                             </div>
                         @endif
 
-                        @if($order->order_type === 'delivery')
+                        @if(strtolower($order->order_type) === 'delivery')
                             <hr>
                             <h6 class="text-primary mb-3">{{ __('admin.delivery_address') }}</h6>
-                            @if($order->guest_address)
+                            @if($order->address_id && $order->address)
+                                <div class="mb-2">
+                                    <strong>{{ __('admin.address') }}:</strong>
+                                    <p class="mb-0">
+                                        @if($order->address->area) <strong>{{ __('admin.area') ?? 'Area' }}:</strong> {{ $order->address->area }}, @endif
+                                        @if($order->address->block) <strong>{{ __('admin.block') ?? 'Block' }}:</strong> {{ $order->address->block }}, @endif
+                                        @if($order->address->street) <strong>{{ __('admin.street') ?? 'Street' }}:</strong> {{ $order->address->street }}, @endif
+                                        @if($order->address->avenue) <strong>{{ __('admin.avenue') ?? 'Avenue' }}:</strong> {{ $order->address->avenue }}, @endif
+                                        @if($order->address->building) <strong>{{ __('admin.building') ?? 'Building' }}:</strong> {{ $order->address->building }}, @endif
+                                        @if($order->address->floor) <strong>{{ __('admin.floor') ?? 'Floor' }}:</strong> {{ $order->address->floor }}, @endif
+                                        @if($order->address->apartment) <strong>{{ __('admin.apartment') ?? 'Apartment' }}:</strong> {{ $order->address->apartment }}, @endif
+                                    </p>
+                                    <p class="text-muted small mt-1">{{ $order->address->full_address }}</p>
+                                    @if($order->address->additional_directions)
+                                        <small class="text-muted d-block mt-1">
+                                            <strong>{{ __('admin.additional_directions') ?? 'Additional Directions' }}:</strong> {{ $order->address->additional_directions }}
+                                        </small>
+                                    @endif
+                                </div>
+                            @elseif($order->guest_address)
                                 <div class="mb-2">
                                     <strong>{{ __('admin.address') }}:</strong>
                                     <p class="mb-0">{{ $order->guest_address }}</p>
                                 </div>
-                            @endif
-                            @if($order->user_id && $order->user && $order->user->addresses)
-                                @php
-                                    $selectedAddress = $order->user->addresses()->where('is_main', 1)->first();
-                                    if (!$selectedAddress && $order->address_id) {
-                                        $selectedAddress = $order->user->addresses()->find($order->address_id);
-                                    }
-                                @endphp
-                                @if($selectedAddress)
-                                    <div class="mb-2">
-                                        <strong>{{ __('admin.address') }}:</strong>
-                                        <p class="mb-0">{{ $selectedAddress->full_address }}</p>
-                                        @if($selectedAddress->additional_directions)
-                                            <small class="text-muted d-block mt-1">
-                                                <strong>{{ __('admin.additional_directions') ?? 'Additional Directions' }}:</strong> {{ $selectedAddress->additional_directions }}
-                                            </small>
-                                        @endif
-                                    </div>
-                                @endif
+                            @elseif($order->user_id && $order->user && $order->user->address)
+                                <div class="mb-2">
+                                    <strong>{{ __('admin.address') }}:</strong>
+                                    <p class="mb-0">{{ $order->user->address }}</p>
+                                </div>
                             @endif
                             @if($order->lat && $order->long)
                                 <div class="mb-2">
@@ -386,7 +451,7 @@
                             @endif
                         @endif
 
-                        @if($order->order_type === 'pick_up' && $order->branch)
+                        @if(strtolower($order->order_type) === 'pick_up' && $order->branch)
                             <hr>
                             <h6 class="text-primary mb-3">{{ __('admin.pickup_branch') ?? 'Pickup Branch' }}</h6>
                             <div class="mb-2">

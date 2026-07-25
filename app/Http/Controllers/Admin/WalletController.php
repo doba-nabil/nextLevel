@@ -11,7 +11,11 @@ use Illuminate\Http\Request;
 
 class WalletController extends Controller
 {
-    public function __construct(private WalletService $walletService) {}
+    public function __construct(private WalletService $walletService)
+    {
+        $this->middleware('permission:users.index')->only('index');
+        $this->middleware('permission:users.create')->only(['create', 'store']);
+    }
 
 
     public function index(WalletDataTable $dataTable)
@@ -23,7 +27,7 @@ class WalletController extends Controller
 
     public function create()
     {
-        $users = User::where('is_admin',0)->get();
+        $users = User::where('is_admin', 0)->get();
         return view('dashboard.wallets.create', compact('users'));
     }
 
