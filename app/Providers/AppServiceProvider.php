@@ -28,6 +28,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        \Illuminate\Support\Facades\Event::listen(
+            \Spatie\MediaLibrary\MediaCollections\Events\MediaHasBeenAdded::class,
+            \App\Listeners\CompressUploadedImage::class
+        );
+
         if (!session()->has('menu_type')) {
             session(['menu_type' => 'delivery']);
         }

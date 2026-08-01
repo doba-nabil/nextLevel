@@ -676,5 +676,6 @@ return [
     'insufficient_points_to_convert' => 'You need at least :minimum points to convert.',
     'points_converted_to_wallet' => 'Converted :points points to :amount KWD',
     'points_conversion_failed' => 'Points conversion failed',
-    'minimum_points_required' => 'Minimum points required'
+    'minimum_points_required' => 'Minimum points required',
+    'start_shopping_to_add_favorites' => 'Start shopping to add favorites'
 ];

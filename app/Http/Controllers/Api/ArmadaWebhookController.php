@@ -11,69 +11,90 @@ class ArmadaWebhookController extends Controller
 {
     public function handleDeliveryUpdate(Request $request)
     {
-        // 1. Verify Request (Optional but recommended: Check signature or token if Armada supports it)
-        // Armada Documentation says: "Order-Webhook-Key" or similar might be used, but for now we trust the payload structure.
-        
-        $data = $request->all();
-        
-        Log::info('Armada Webhook Received', ['payload' => $data]);
+        $payload = $request->all();
+        $headers = $request->headers->all();
 
-        // 2. Extract Order Reference & Status
-        // Payload structure usually contains 'reference' (our order_number) and 'status'
-        // Example payload check required. Assuming based on standard delivery APIs.
-        $orderNumber = $data['reference'] ?? null;
-        $status = $data['status'] ?? null;
-        // Armada Statuses map:
-        // 'new', 'cancellation_offered', 'driver_assigned', 'picked_up', 'completed', 'cancelled', 'expired'
+        Log::channel('armada')->info('Armada Webhook Received', [
+            'payload' => $payload,
+            'headers' => $headers
+        ]);
+        $armadaId = $payload['code'] ?? null;
 
-        if (!$orderNumber) {
-            return response()->json(['message' => 'Reference missing'], 400);
+        if (!$armadaId) {
+            return response()->json(['message' => 'Armada ID (code) missing'], 400);
         }
-
-        // 3. Find Order
-        $order = Order::where('order_number', $orderNumber)->first();
+        $order = Order::where('armada_id', $armadaId)->first();
 
         if (!$order) {
-            Log::warning('Armada Webhook: Order not found', ['order_number' => $orderNumber]);
+            Log::channel('armada')->warning('Armada Webhook: Order not found', ['armada_id' => $armadaId]);
             return response()->json(['message' => 'Order not found'], 404);
         }
-
-        // 4. Update Order Status
-        // Run2Diet Statuses: pending, processing, out_for_delivery, delivered, cancelled, etc.
-        // We need to map Armada status to System status.
+        $webhookKey = $request->header('order-webhook-key') ?? $request->header('Authorization');
         
-        /*
-         * Mapping:
-         * driver_assigned -> processing (or keep as is, potentially add 'driver_assigned' if system supports)
-         * picked_up -> out_for_delivery
-         * completed -> delivered
-         * cancelled -> cancelled
-         */
-
-        switch ($status) {
-            case 'driver_assigned':
-                // Maybe update internal tracking info?
-                // $order->update(['status' => 'processing']); 
-                break;
-            
-            case 'picked_up':
-                $order->update(['status' => 'out_for_delivery']);
-                break;
-
-            case 'completed':
-                $order->update(['status' => 'delivered']);
-                break;
-
-            case 'cancelled':
-            case 'expired':
-                $order->update(['status' => 'cancelled']);
-                break;
+        if ($webhookKey !== $order->armada_header) {
+            Log::channel('armada')->warning('Armada Webhook: Unauthorized access attempt', [
+                'order_id' => $order->id,
+                'received_key' => $webhookKey,
+                'stored_key' => $order->armada_header,
+                'all_headers' => $headers // Log all headers for debugging
+            ]);
+            return response()->json(['message' => 'Unauthorized'], 401);
         }
-        
-        // Save raw status from Armada just in case
-        // If there's a specific column for delivery_status, update it. Else, maybe log or store in meta.
-        // For now, main status update is sufficient.
 
-        return response()->json(['message' => 'Status updated']);
+        $armadaStatus = $payload['orderStatus'] ?? null;
+        
+        $order->delivery_info = $payload;
+        $order->delivery_status = $armadaStatus;
+
+        if (!empty($payload['trackingLink'])) {
+            $order->armada_link = $payload['trackingLink'];
+        }
+        if (!empty($payload['qrCodeLink'])) {
+            $order->armada_qr = $payload['qrCodeLink'];
+        }
+
+        if ($armadaStatus) {
+            switch ($armadaStatus) {
+                case 'new':
+                case 'driver_assigned':
+                case 'waiting_pack':
+                    // Keep as processing
+                    if ($order->status !== 'processing' && $order->status !== 'completed' && $order->status !== 'cancelled') {
+                         $order->status = 'processing';
+                    }
+                    break;
+                
+                case 'picked_up':
+                case 'en_route':
+                    
+                    if ($order->status !== 'completed' && $order->status !== 'cancelled') {
+                        $order->status = 'processing'; 
+                    }
+                    break;
+
+                case 'completed':
+                    if ($order->status !== 'completed') {
+                        $order->status = 'completed';
+                    }
+                    break;
+
+                case 'cancelled':
+                case 'expired':
+                    if ($order->status !== 'cancelled') {
+                        $order->status = 'cancelled';
+                    }
+                    break;
+            }
+        }
+
+        $order->save();
+
+        Log::channel('armada')->info('Armada Webhook Processed Successfully', [
+            'order_id' => $order->id,
+            'new_status' => $order->status,
+            'delivery_status' => $order->delivery_status
+        ]);
+
+        return response()->json(['message' => 'Order updated successfully']);
     }
 }

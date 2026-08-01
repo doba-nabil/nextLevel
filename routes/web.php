@@ -24,29 +24,18 @@ use App\Http\Controllers\Website\{
     MenuController
 };
 
-Route::get('admin-panel', function () {
-    return redirect(url('admin-panel/login'));
+Route::get('/compress-images', function () {
+    ini_set('max_execution_time', 0); // Disable execution time limit
+    try {
+        \Illuminate\Support\Facades\Artisan::call('images:compress', ['--quality' => 75]);
+        return '<pre>' . \Illuminate\Support\Facades\Artisan::output() . '</pre>';
+    } catch (\Exception $e) {
+        return "Error: " . $e->getMessage();
+    }
 });
 
-// Test MyFatoorah Configuration (Remove in production)
-Route::get('/test-myfatoorah', function() {
-    try {
-        $service = new \App\Services\MyFatoorahService();
-
-        return response()->json([
-            'status' => 'Configuration OK',
-            'base_url' => $service->baseUrl,
-            'test_mode' => $service->isTest,
-            'api_key_set' => !empty($service->apiKey),
-            'api_key_length' => strlen($service->apiKey ?? ''),
-        ]);
-
-    } catch (\Exception $e) {
-        return response()->json([
-            'status' => 'error',
-            'message' => $e->getMessage()
-        ], 500);
-    }
+Route::get('admin-panel', function () {
+    return redirect(url('admin-panel/login'));
 });
 
 Route::group(['prefix' => LaravelLocalization::setLocale(), 'middleware' => [\App\Http\Middleware\SetWebsiteLocale::class, SetDefaultType::class, SaveLocation::class, 'localeSessionRedirect', 'localizationRedirect']], function () {
@@ -236,15 +225,6 @@ Route::group(['prefix' => LaravelLocalization::setLocale(), 'middleware' => [\Ap
     Route::get('/{slug}', [PageController::class, 'show'])
         ->name('website.pages.show');
 
-});
-
-Route::get('/test-mail', function () {
-    \Illuminate\Support\Facades\Mail::raw('اختبار إرسال بريد من Laravel عبر Hostinger ✅', function ($message) {
-        $message->to('dobanabil40@gmail.com')
-            ->subject('Test Email');
-    });
-
-    return 'تم الإرسال (تحقق من بريدك).';
 });
 
 

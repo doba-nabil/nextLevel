@@ -678,5 +678,7 @@ return [
     'insufficient_points_to_convert' => 'تحتاج على الأقل :minimum نقطة للتحويل.',
     'points_converted_to_wallet' => 'تم تحويل :points نقطة إلى :amount دينار كويتي',
     'points_conversion_failed' => 'فشل تحويل النقاط',
-    'minimum_points_required' => 'الحد الأدنى للنقاط المطلوبة'
+    'minimum_points_required' => 'الحد الأدنى للنقاط المطلوبة',
+    'start_shopping_to_add_favorites' => 'ابدأ التسوق لإضافة منتجاتك المفضلة'
 ];
+

@@ -22,7 +22,7 @@ class CompressImages extends Command
     {
         $quality = (int) $this->option("quality");
         $dryRun  = $this->option("dry-run");
-        $basePath = storage_path("app/public");
+        $basePath = public_path("storage");
 
         if ($dryRun) {
             $this->warn("DRY RUN mode — no files will be changed.");
